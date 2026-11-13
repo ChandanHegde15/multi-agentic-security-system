@@ -1,0 +1,62 @@
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+
+# --- Test and tool caches ---
+.pytest_cache/
+.pytest_tmp/
+.pytest-tmp/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Research data: never committed (see docs/datasets/DATASET_CATALOG.md) ---
+# The primary dataset lives in research/datasets/ on the owner's machine only.
+# It contains live malware samples (inside an archive) and data without redistribution rights.
+/research/datasets/
+research_data/
+data/
+*.zip
+*.tgz
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.whl
+*.7z
+*.rar
+*.parquet
+
+# --- Model weights and training state ---
+models/
+checkpoints/
+*.safetensors
+*.pt
+*.pth
+*.bin
+*.ckpt
+*.onnx
+
+# --- Frontend ---
+node_modules/
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Literature PDFs: publisher copies, never committed ---
+/papers/

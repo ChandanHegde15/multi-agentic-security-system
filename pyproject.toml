@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multi-agentic-security"
+version = "0.0.1"
+description = "Five-agent research system for detecting risky software dependencies and verifying remediation recommendations"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Chandan Hegde" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
