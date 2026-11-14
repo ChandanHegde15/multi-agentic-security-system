@@ -58,15 +58,15 @@ Supporting questions RQ2–RQ4 cover grounding (a replication), per-family diffe
 | `docs/datasets/DATASET_CATALOG.md` | Data sources, location, licences, known issues |
 | `docs/datasets/DATASET_MIGRATION_PLAN.md` | The executed move of the dataset into `research/datasets/` |
 
-## 2. Five-agent architecture (design approved, D-025; not implemented)
+## 2. Five-agent architecture (design approved, D-025; system specification D-047; contracts implemented, agents in progress)
 
 | # | Legacy role | New role |
 |---|---|---|
-| 1 | Dependency extraction (root `requirements.txt` / `package.json`) | Dependency extraction from manifests, deterministic |
-| 2 | Registry verification (PyPI/npm existence check) | Evidence collection: time-stamped registry state plus lookups in separate label families; no judgement |
+| 1 | Dependency extraction (root `requirements.txt` / `package.json`) | Deterministic extraction from uploaded files, ZIP or folder, a public Git repository link, or generated Python/JavaScript code (imports read statically, never executed) (D-047) |
+| 2 | Registry verification (PyPI/npm existence check) | Registry verification and evidence collection: live, time-stamped PyPI/npm lookups for user uploads, a dated snapshot for experiments, lookups in separate label families; no judgement |
 | 3 | Deterministic risk scoring (not-found weight + Levenshtein similarity to 7 reference packages) | **v1 preserved unchanged as a baseline.** v2 (allowed, D-020): one finding per label family, no combined score |
 | 4 | LLM recommendation (Groq / local Qwen LoRA) | Structured recommendation with evidence-cited claims; rule-based, ungrounded-LLM and grounded-LLM variants plus an adapter for an existing audit tool (D-039); provider-agnostic, three pinned models (D-038); no fine-tuning |
-| 5 | Recommendation verification (git worktree, pip install, tests, merge gate) | Independent deterministic verification of the recommended target; nothing installed or executed |
+| 5 | Recommendation verification (git worktree, pip install, tests, merge gate) | Isolated deterministic verification of every recommendation before acceptance (separate from Agent 4, no LLM); verified / rejected / needs review; nothing installed or executed |
 
 ## 3. Why the project was reset
 

@@ -150,3 +150,27 @@ def test_known_before_uses_publication_date_and_never_guesses():
     assert rec.known_before(date(2026, 3, 2))
     assert not rec.known_before(date(2026, 3, 1))   # strictly before
     assert not record(published=None).known_before(date(2030, 1, 1))
+
+
+def test_evidence_id_unchanged_by_schema_1_1():
+    # Value computed with schema evidence/1 before the target field existed.
+    import hashlib
+    from multi_agentic_security.contracts.evidence import ID_NAMESPACE
+    r = record()
+    parts = (ID_NAMESPACE, "vulnerable", "osv", "PyPI/all.zip 2026-11-12", "GHSA-xxxx-yyyy-zzzz", "pypi", "flask-cors", "range", "", ">=0,<4.0.1")
+    assert ID_NAMESPACE == "evidence/1"
+    assert r.evidence_id == "ev-vulnerable-" + hashlib.sha256("\x1f".join(parts).encode()).hexdigest()[:16]
+
+
+def test_typosquat_target_rules():
+    base = dict(family=LabelFamily.TYPOSQUAT, ecosystem="pypi", name_raw="reqeusts", name_normalized="reqeusts",
+                version_scope=VersionScope.ALL, version_range=None, provenance=provenance())
+    with pytest.raises(ValueError):
+        record(**base)
+    ok = record(**base, target_name_raw="Requests", target_name_normalized="requests")
+    assert ok.to_dict()["target_name_normalized"] == "requests"
+    assert ok.evidence_id != record(**base, target_name_raw="reqs", target_name_normalized="reqs").evidence_id
+    with pytest.raises(ValueError):
+        record(**base, target_name_raw="reqeusts", target_name_normalized="reqeusts")
+    with pytest.raises(ValueError):
+        record(target_name_raw="x", target_name_normalized="x")

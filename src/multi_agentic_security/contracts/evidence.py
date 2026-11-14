@@ -21,7 +21,10 @@ from typing import Any, Optional
 
 from multi_agentic_security.datasets.names import normalize_ecosystem, normalize_name
 
-SCHEMA_VERSION = "evidence/1"
+SCHEMA_VERSION = "evidence/1.1"
+# 1.1 adds the optional typosquat target. The ID namespace stays "evidence/1" so that
+# identifiers of records without a target are unchanged from schema 1.
+ID_NAMESPACE = "evidence/1"
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -79,6 +82,8 @@ class EvidenceRecord:
     version_range: Optional[str] = None
     published: Optional[date] = None
     corroborating_sources: tuple[str, ...] = ()
+    target_name_raw: Optional[str] = None         # typosquat family only: the imitated package
+    target_name_normalized: Optional[str] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.family, LabelFamily):
@@ -99,6 +104,16 @@ class EvidenceRecord:
             raise ValueError("version_scope 'listed' needs a version and no version_range")
         if self.version_scope is VersionScope.RANGE and (not self.version_range or self.version):
             raise ValueError("version_scope 'range' needs a version_range and no version")
+        if self.family is LabelFamily.TYPOSQUAT:
+            if not self.target_name_raw:
+                raise ValueError("a typosquat record needs target_name_raw")
+            expected_target = normalize_name(self.ecosystem, self.target_name_raw)
+            if self.target_name_normalized != expected_target:
+                raise ValueError(f"target_name_normalized must be {expected_target!r}")
+            if expected_target == self.name_normalized:
+                raise ValueError("a typosquat cannot target itself")
+        elif self.target_name_raw or self.target_name_normalized:
+            raise ValueError("only typosquat records carry a target")
         if self.published is not None and (
             not isinstance(self.published, date) or isinstance(self.published, datetime)
         ):
@@ -108,7 +123,7 @@ class EvidenceRecord:
     def evidence_id(self) -> str:
         """Stable identifier, derived only from the record's identifying fields."""
         parts = (
-            SCHEMA_VERSION,
+            ID_NAMESPACE,
             self.family.value,
             self.provenance.source_dataset,
             self.provenance.source_version,
@@ -119,6 +134,8 @@ class EvidenceRecord:
             self.version or "",
             self.version_range or "",
         )
+        if self.target_name_normalized:  # appended only when present: older IDs stay unchanged
+            parts = parts + (self.target_name_normalized,)
         digest = hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:16]
         return f"ev-{self.family.value}-{digest}"
 

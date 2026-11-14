@@ -134,7 +134,7 @@ All counts are upper bounds before review, de-duplication and splitting. No sour
 
 | Family | Cases | Source | Status |
 |---|---|---|---|
-| Vulnerable (headline) | Dependency pins from real public projects dated before the cut-off that fall in an advisory range; advisories with a fixed version | Real-project pins (to acquire, D-041); OSV PyPI | Sampling rule in `RESEARCH_METHODOLOGY.md` §7, to be confirmed before retrieval |
+| Vulnerable (headline) | Dependency pins from real public projects dated before the cut-off that fall in an advisory range; advisories with a fixed version | Real-project pins (to acquire, D-041); OSV PyPI | Sampling rule fixed in `RESEARCH_METHODOLOGY.md` §7.1 (D-044) |
 | Typosquat | 406 npm pairs; Ecosyste.ms PyPI and npm pairs after per-row review | YCTT, Ecosyste.ms | Review task approved (D-033) |
 | Malicious | Sample of 11,992 PyPI reports and the DataDog manifests, stratified by publication year | OpenSSF, DataDog | Held |
 | Nonexistent | 34 human-confirmed hallucinated names | Package Hallucination | Held; intervals will be wide |

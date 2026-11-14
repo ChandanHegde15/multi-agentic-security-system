@@ -1,6 +1,6 @@
 # Research methodology
 
-Status 2026-11-13:
+Status 2026-11-14 (sampling rule fixed, D-044; supplementary data placed, D-045). Earlier status 2026-11-13:
 - The research questions, metrics and experiment design are **approved in the narrowed form** (D-030; evaluation additions D-032 to D-041); see sections 4 and 6 to 8.
 - This document records the approved data-handling principles and the approved normalization strategy (D-024).
 
@@ -93,27 +93,39 @@ Everything acquired goes under `research/datasets/`, stays out of git, and gets 
 
 | Item | What is retrieved | Status |
 |---|---|---|
-| PyPI version lists and upload times | Registry JSON metadata for sampled package names only | Approved (D-034); not started |
-| PyPI popular-package list | One dated public list of most-downloaded packages | Approved (D-027); source and date to be recorded |
-| LibHalluBench dataset card | The card text and the revision identifier | Approved (D-041); not started |
-| Real-project dependency pins | Text of requirement files only (rule below) | Approved in principle (D-040); **the rule below must be confirmed by the owner before retrieval** |
-| OSV npm advisories | The npm export | Approved (D-027); optional, low priority |
+| PyPI version lists and upload times | Registry JSON metadata for sampled package names only | Approved (D-034). Acquired 2026-11-14 for 125 names (top-100 popular + Ecosyste.ms targets; D-045). Vulnerable-family PyPI targets: not yet acquired |
+| PyPI popular-package list | One dated public list of most-downloaded packages | Acquired 2026-11-14: hugovk/top-pypi-packages 30-day list, 15,000 names, list dated 2026-11-01; licence unverified (D-045) |
+| LibHalluBench dataset card | The card text and the revision identifier | Acquired 2026-11-14, revision `6882a8a4` (D-045) |
+| Real-project dependency pins | Text of requirement files only (rule below) | Rule fixed (D-044); test-set sample not yet acquired. Five development repositories acquired 2026-11-14, development and pilot use only (D-045) |
+| OSV npm advisories | The npm export | Approved (D-027); not yet acquired |
 
-### 7.1 Sampling rule for real-project dependency pins (proposed)
+### 7.1 Sampling rule for real-project dependency pins (fixed, D-044)
 
-**Goal.** Realistic `package==version` inputs for the vulnerable family, as they stood before the cut-off date T.
+**Goal.** Realistic `package==version` inputs for the vulnerable family, as they stood before each cut-off date T, drawn so that the test set is not hand-picked.
 
-1. **Population.** Public GitHub repositories whose primary language is Python, that are not forks or archives, and that have a `requirements.txt` (or `requirements/*.txt`) at the repository root level.
-2. **Sample.** A fixed-size random sample (proposed: 300 repositories) drawn with a recorded seed from a recorded search query, stratified into three star bands so that the sample is not only very popular projects. The query, seed, date and the full list of sampled repositories are stored.
-3. **Version of the file.** The last commit to the default branch dated before T. The commit hash and date are recorded.
-4. **What is retrieved.** Only the text of the requirement files at that commit, through the hosting API. No repository is cloned in full, and no other file is fetched except the repository's licence identifier.
-5. **What is kept.** Only exact pins (`name==version`) of packages on PyPI. Unpinned, range-pinned, URL, editable and local-path entries are counted and discarded. Names are normalised (PEP 503).
-6. **Case construction.** A pin becomes a vulnerable-family case if the pinned version lies in an affected range of a non-withdrawn advisory published **before** T (the system can see the finding). The same pin is scored against advisories published at any time.
-7. **Duplicates.** One case per (package, version); the number of repositories that pin it is kept as a weight. All cases for one package stay on the same side of the development and test split.
-8. **Licences and publication.** Requirement files are short factual lists; the repository licence identifier is recorded for each. Raw files are not redistributed. Only (package, version, count) tuples and repository identifiers are candidates for release, after a licence check.
-9. **Never.** `pip install`, dependency resolution that downloads packages, or execution of anything from the sampled repositories.
+1. **Sampling frame.** GitHub repository search, `language:Python fork:false archived:false stars:>=10`, run over consecutive creation-month windows from 2015-01 to the last full month before the earliest cut-off. Monthly windows keep every query under the search API's 1,000-result limit, so the frame is the full list, not the first page. The queries, run date and the complete candidate list (with its SHA-256) are stored; the stored list, not a re-run search, is the frame.
+2. **Exclusions.** The five development repositories already acquired (home-assistant/core, apache/superset, pallets/flask, pandas-dev/pandas, psf/requests); repositories that are themselves a source dataset of this project; forks and archived repositories.
+3. **Strata.** Three star bands, 100 repositories each: 10–99, 100–999, ≥1,000 (stars as at retrieval; this is recorded as a limitation).
+4. **Order.** Candidates in each band are shuffled once with the fixed seed `20261114` (Python `random.Random(seed).shuffle` over the sorted `owner/repo` list). Repositories are checked in that order until the band has 100 eligible repositories. Every checked repository and the reason it was accepted or rejected are logged.
+5. **Snapshot.** For each cut-off T, the last commit on the default branch dated before T. Eligible only if that commit is no older than 24 months before T (the project was active at T). One snapshot per repository per cut-off; commit hash and date are recorded.
+6. **Files.** Only `requirements*.txt` at the repository root or `requirements/*.txt`, at most three files per repository (root files first, then alphabetical), fetched as text through the hosting API. Nothing is cloned, and nothing else is fetched except the repository's licence identifier.
+7. **Eligibility.** At least five exact pins (`name==version`) of PyPI packages across the repository's retrieved files. Unpinned, range, URL, editable, local-path and hash-only lines are counted and discarded. Names are normalised (PEP 503).
+8. **Case construction.** A pin becomes a vulnerable-family case if the pinned version lies in an affected range of a non-withdrawn advisory published before T (the system can see the finding). The same pin is scored against advisories published at any time.
+9. **Duplicates and splits.** One case per (package, version, T); the number of repositories that pin it is kept as a weight. All cases for one package stay on the same side of the development/test split, and all pins from one repository stay together.
+10. **Size check.** After retrieval, if fewer than 300 vulnerable-family cases result, each band is extended by continuing the same shuffled order in steps of 50 repositories until 300 cases are reached or the frame is exhausted. This extension rule is fixed now, before any result is seen.
+11. **Licences and publication.** The repository licence identifier is recorded for each file. Raw files are not redistributed; only (package, version, count) tuples and repository identifiers are release candidates, after a licence check.
+12. **Never.** `pip install`, dependency resolution that downloads packages, or execution of anything from the sampled repositories.
 
-**Known limits.** Repositories with pinned requirement files are not representative of all Python projects; applications are over-represented compared with libraries. Pins in a requirement file are declared, not necessarily deployed. Both are stated as threats.
+**Why this rule.**
+- *Random within a recorded frame* removes selection by the researcher, which is the main weakness of the five development repositories.
+- *Star bands* stop very popular, well-maintained projects (which pin few vulnerable versions) from dominating, while keeping them represented; results can be reported per band.
+- *At least 10 stars* removes most empty, personal and coursework repositories, which are not projects a remediation recommender would realistically serve.
+- *Activity within 24 months of T* ensures the pins describe a project in use at T, so a recommendation made at T is meaningful.
+- *At least five exact pins* is the minimum for a repository to contribute version-level cases; looser pins cannot be checked against affected ranges.
+- *At most three files per repository and grouping by repository* stop large monorepos from contributing most of the cases.
+- *300 repositories* is expected (unverified estimate: about 20 exact pins per repository, a few per cent vulnerable) to give several hundred vulnerable-family cases, enough for proportions with roughly ±5 percentage-point 95% intervals. The pilot checks this, and the size check (item 10) is fixed in advance.
+
+**Known limits.** Repositories with pinned requirement files over-represent applications compared with libraries; star counts are measured at retrieval, not at T; declared pins are not necessarily deployed; GitHub search coverage is not guaranteed complete. All are stated as threats.
 
 ## 8. Reading order for the evaluation
 

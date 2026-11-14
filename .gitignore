@@ -60,3 +60,6 @@ Thumbs.db
 
 # --- Literature PDFs: publisher copies, never committed ---
 /papers/
+
+# --- Runtime data: user uploads, run records and reports (untrusted input, never committed) ---
+/runtime/

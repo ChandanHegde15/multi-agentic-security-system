@@ -4,9 +4,9 @@ Research project on detecting nonexistent (for example LLM-hallucinated), typosq
 
 ## Status
 
-- The research foundation and the narrowed research direction are approved (see `DECISIONS.md`, D-017 to D-043).
-- Only the **Agent 3 v1 baseline** (`src/multi_agentic_security/agents/agent3_risk/baseline_v1/`) is implemented. It is frozen as a deterministic comparison point.
-- Agents 1, 2, 4 and 5, Agent 3 v2, the evidence store, the evaluation harness, the backend and the frontend are designed but not yet implemented.
+- The research foundation and the narrowed research direction are approved (see `DECISIONS.md`, D-017 to D-048). The user-facing system is specified in D-047: upload (files, ZIP, Git link or generated code) → Agents 1 to 5 → per-agent dashboards with an explanation for every decision.
+- Implemented: the frozen **Agent 3 v1 baseline** (`src/multi_agentic_security/agents/agent3_risk/baseline_v1/`), the evidence record contract, the pipeline contracts between all five agents (`src/multi_agentic_security/contracts/`), and source adapters that build the normalized evidence tables (`src/multi_agentic_security/datasets/`; results in `docs/datasets/DATASET_EVALUATION.md`).
+- Not yet implemented: Agents 1, 2, 4 and 5, Agent 3 v2, the pipeline orchestrator, the evaluation harness, the backend and the dashboards. Work proceeds in the phases listed in D-047.
 
 ## Research question
 
@@ -24,7 +24,7 @@ Details: `docs/research/RESEARCH_QUESTIONS.md`.
 | `DECISIONS.md` | Approved decisions and their reasons |
 | `docs/research/` | Problem definition, literature review, gap matrix, research questions, methodology, foundation review |
 | `docs/architecture/` | System architecture and agent contracts |
-| `docs/datasets/` | Dataset catalog and the dataset migration record |
+| `docs/datasets/` | Dataset catalog, dataset evaluation and the dataset migration record |
 
 ## Running the tests
 

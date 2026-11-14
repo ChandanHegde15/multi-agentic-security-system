@@ -14,6 +14,19 @@ Status 2026-11-13:
 
 ---
 
+## System specification adjustments (D-047)
+
+These take precedence over the draft contracts below until those are rewritten from the implemented code.
+
+| Agent | Change |
+|---|---|
+| All | Every decision record carries `reasons`: `[{rule_id, outcome, explanation, inputs, evidence_ids}]`. A decision without a reason is a contract violation. |
+| Agent 1 | Input sources: `requirements_txt`, `package_json`, `package_lock_json`, `python_code`, `javascript_code`, `install_command_text`, `archive`, `directory`, `git_repository`. Dependency types: `runtime`, `dev`, `optional`, `peer`, `import`, `install_command`. Each record keeps the original declaration, source path and line, and an `extraction_status` (`ok`, `warning`, `unresolved`). Import names that cannot be mapped to a package stay `unresolved`. |
+| Agent 2 | Registry statuses `found`, `not_found`, `security_placeholder`, `lookup_error`, `invalid_response`, `not_checked`; `registry_mode` `live`, `snapshot`, `off`. |
+| Agent 3 | Output holds the frozen v1 result (labelled baseline) and the v2 findings side by side. |
+| Agent 4 | Actions `remove`, `replace`, `upgrade`, `downgrade`, `keep`, `investigate`, `abstain`. Hosted LLM API behind one interface; records `backend`, `model`, `prompt_version`, `generation_status`. |
+| Agent 5 | Runs isolated from Agent 4 (no import of Agent 4 code, no LLM, reads only the structured recommendation, the evidence store and read-only registry lookups). Verdict shown as verified (`accept`), rejected (`reject`) or needs review (`abstain`). |
+
 ## Agent 3 v1 baseline: deterministic risk scoring (frozen)
 
 - **Code:** `src/multi_agentic_security/agents/agent3_risk/baseline_v1/`

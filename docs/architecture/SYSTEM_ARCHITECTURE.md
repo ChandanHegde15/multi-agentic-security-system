@@ -186,3 +186,7 @@ The five-agent design of sections 1–7 stands. These adjustments are applied du
 | The evidence store is time-aware: every record carries its publication date and every query takes a cut-off date. No agent performs a live lookup during an experiment | Agent 2, store | Temporal hold-out; live lookups leak later takedowns | D-021, D-034 |
 | Case manifests carry a group key (target package, name cluster) used by the splitter and by resampling | Evaluation harness | Near-duplicate names and copy-cat clusters | D-036 |
 | Agent 3 v1 lives at `src/multi_agentic_security/agents/agent3_risk/baseline_v1/`, unchanged | Agent 3 | Repository structure | D-042 |
+
+## 9. System specification (D-047)
+
+The user-facing system follows the specification adopted in D-047: an upload (files, ZIP, folder, public Git repository link, or generated code) passes through Agents 1 to 5 and ends in per-agent dashboard views and a per-dependency trace from the original declaration to the final verdict. Section 8 and the research rules still apply: nothing is installed or executed, Agent 4 is not fine-tuned, live lookups serve user uploads only, and experiments run on the dated evidence snapshot. Contract changes are listed in `AGENT_CONTRACTS.md` (System specification adjustments).

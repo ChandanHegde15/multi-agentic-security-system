@@ -12,10 +12,12 @@ These historical reports cite the old `D:\RESEARCH_DATA\...` paths; `research/da
 | Path | Contents | Rules |
 |---|---|---|
 | `incoming\dataset_submission.zip` | Original submission, 478,991,113 bytes, SHA-256 `33e409abbfb17ab8840a0cadb73ee44ce963b5d80bf1ccd8f35fc073572f0d00` | Immutable |
+| `incoming\extras_only.zip` | Supplementary acquisitions (2026-11-14), SHA-256 `fa362e7a8a4a16487468b4ab7c97d5396d78e55414332b9137981148f007392e` | Immutable |
+| `extracted\extras_v1\` | Text-only extraction of `extras_only.zip` (146 files), same record files as `v1` | Read-only |
 | `extracted\v1\` | Text-only allowlisted extraction. `EXTRACTION_MANIFEST.csv` lists every file with its SHA-256; `EXTRACTION_SKIPPED.csv` lists what was not written. | Read-only |
 | `review\code\` | 43 submission scripts and notebooks saved as `.txt` | Read only, never run |
 | `inspected\` | Inspection reports, `archive_inventory.csv` | Historical |
-| `verified\` | Empty; future normalized and approved data | — |
+| `verified\` | Normalized evidence tables built from raw sources (§2.2) | — |
 | `provenance\` | Migration record, pre/post hash trees, quarantine record, old README | — |
 | `D:\RESEARCH_DATA\legacy_archive\agentic-security-system_v1\` (outside the repository folder) | Legacy datasets and model (temporary, D-003) | Not for the new pipeline |
 
@@ -48,6 +50,37 @@ Paths are under `extracted\v1\data\sources\`.
 | PyPI MalRegistry | `pypi_malregistry/tree_listing.txt` | git commit `b85fe774` | Path listing: 12,600 version paths, 10,790 names | **Listing only**: no package archives | **None stated**; do not redistribute |
 | deps.dev | — | — | — | **Absent** | — |
 | Real-world manifests | `real_manifests/files/` | 12 GitHub repos; commit per case in `benchmarks/agent1/real_manifest_cases.jsonl` | 326 indexed manifests (109 project, 217 fixture): package.json 146, pyproject.toml 116, yarn.lock 46, package-lock.json 8, requirements.txt 5, Pipfile 4, pnpm-lock.yaml 1 | Complete for those repos | **Unverified** (per repository) |
+
+### 2.1 Supplementary acquisitions (2026-11-14, D-045)
+
+Paths are under `extracted\extras_v1\data\`. Each raw response keeps its retrieval time; per-source notes are in `manifests\extras_sources.json`.
+
+| Source | Location | Contents (verified 2026-11-14) | Limits | License (evidence) |
+|---|---|---|---|---|
+| PyPI popular list | `sources\pypi_popular\raw\`, `normalized\package_identities\pypi_popular_top.jsonl` | 15,000 names by 30-day downloads, list dated 2026-11-01 | Popularity says nothing about safety | **Unverified** (hugovk/top-pypi-packages; PSF BigQuery data) |
+| PyPI version lists | `sources\pypi_versions\raw\`, `normalized\registry_metadata\pypi_versions.jsonl` | 125 names queried (top-100 popular + Ecosyste.ms PyPI targets): 123 found, 2 not found; versions, first upload time, yanked flag | Registry state at retrieval; vulnerable-family targets not covered | PyPI public metadata, none stated |
+| Requirements pins (development) | `sources\real_manifests\requirements_pins\` + `index.jsonl` | 13 files, 1,436 pinned lines from 5 repositories | Hand-picked: development and pilot only, never the test set | **Unverified** (per repository) |
+| LibHalluBench card | `sources\libhallubench\card\` | Card text and revision `6882a8a46fecdcef42dccdbb72aa65de0dd94b12` | — | Card states CC-BY-4.0, no training use |
+
+
+### 2.2 Normalized evidence tables (built 2026-11-14)
+
+Built by code in `src/multi_agentic_security/datasets/`, written under `verified/normalized/v1/<family>/<table>/` (git-ignored), each with `MANIFEST.json` (counts, source version, licence, SHA-256 of outputs), `skips.csv` (every unmapped input and why) and `notes.csv`. Schema `evidence/1.1` (adds the typosquat target; identifiers unchanged). Mapping rules: D-046 (OSV) and D-048 (all others). Not yet approved for evaluation or training use (D-024 item 7). Cross-table evaluation: `DATASET_EVALUATION.md`.
+
+| Table | Adapter | Records | Distinct packages | Dated | Notes (verified from the manifests) |
+|---|---|---:|---:|---|---|
+| `vulnerable/osv_pypi_a2` | `osv_pypi/2` | 23,632 | 1,696 (PyPI) | 100% | 14,212 advisories; skipped 12,017 `MAL-`, 607 withdrawn advisories, 483 non-PyPI entries, 1,535 `GIT` ranges, 23 uninterpretable ranges (13 recovered from listed versions), 23 without version data |
+| `malicious_withdrawn/openssf_a2` | `openssf/2` | 18,348 (malicious 17,498; withdrawn 850) | 12,354 | 99.95% (2022-05-31 to 2026-11-11) | All 12,354 reports mapped (11,992 malicious PyPI, 362 withdrawn PyPI and npm) |
+| `malicious/datadog_manifests` | `datadog/1` | 53,632 (npm 51,784; PyPI 1,848) | 50,434 | none | 48,343 whole-package, 5,289 listed versions; ai-skills and IDE manifests skipped; `Roblox.-com` and `roblox-com` are one PyPI name |
+| `malicious/malregistry_listing` | `malregistry/1` | 12,600 | 10,790 (PyPI) | none | Listed versions only; 38 non-package lines skipped; no licence stated |
+| `typosquat/ecosystems_typosquats` | `ecosystems/1` | 130 (PyPI 93, npm 37) | 130 | none | 35 other-ecosystem rows and 2 rows whose variant equals its target skipped |
+| `typosquat/yctt_pairs` | `yctt/1` | 406 (npm) | 406 | 100% (release date) | Dated by the dataset release, not the package upload time |
+| `benign_reference/pypi_popular` | `popular/1` | 15,000 | 15,000 | 100% (list date) | Candidates only |
+| `benign_reference/yctt_targets` | `yctt/1` | 232 (npm) | 232 | none | Candidates only |
+
+Superseded folders kept until the owner removes them: `vulnerable/osv_pypi` (adapter 1, no listed-version fallback) and `malicious_withdrawn/openssf` (adapter 1, skipped 113 withdrawn npm reports with `SEMVER` ranges).
+
+Open checks (unverified): PROBLEM_DEFINITION.md section 1 counts 1,697 names with a non-withdrawn advisory and 606 withdrawn GHSA+PYSEC records; the OSV table has 1,696 and 607 (likely causes: the quarantined GHSA record; a withdrawn `OSV-` record). GHSA/PYSEC aliases still double-count the same vulnerability until alias groups are built.
 
 ## 3. Submitter-derived material (review status, not ground truth)
 
@@ -94,9 +127,9 @@ Per-dataset meaning, legitimate ground truth and limits: `docs/research/PROBLEM_
 |---|---|
 | deps.dev | Entire source |
 | OpenSSF npm, RubyGems, NuGet reports | — |
-| OSV npm and other ecosystem exports | — |
+| OSV npm and other ecosystem exports | npm approved (D-027), not yet acquired |
 | DataDog encrypted samples | **Live malware** |
 | PyPI MalRegistry package archives | **Live malware**, no license |
-| LibHalluBench dataset card and revision | — |
+| LibHalluBench dataset card and revision | Acquired 2026-11-14 (§2.1) |
 | Real-manifest licenses; human gold for 5 `requirements.txt` and 4 Pipfile manifests | — |
 | The normalized-record JSON schema referenced by the submission's `data/README.md` | Absent |
