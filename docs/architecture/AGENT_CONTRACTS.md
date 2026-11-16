@@ -1,7 +1,8 @@
 # Agent contracts
 
-Status 2026-11-13:
-- Only the **Agent 3 v1 baseline** contract is implemented. It is documented below from the code in `src/multi_agentic_security/agents/agent3_risk/baseline_v1/` and is unchanged.
+Status 2026-11-16:
+- **Agent 1** is implemented (see "Agent 1: dependency extraction" below, D-049 to D-052).
+- The **Agent 3 v1 baseline** contract is implemented. It is documented below from the code in `src/multi_agentic_security/agents/agent3_risk/baseline_v1/` and is unchanged.
 - **Draft contracts** for Agents 1, 2, 4 and 5 and for Agent 3 v2 are at the end of this file. They are **approved as the design baseline (D-025) but not implemented**; changes during implementation go through recorded decisions. The design rationale is in `SYSTEM_ARCHITECTURE.md`.
 
 ## Requirements that apply to every new contract (from approved decisions)
@@ -131,21 +132,17 @@ Rules that apply to every contract:
 - In held-out experiments `registry_mode` must not be `live` for target existence checks, because today's registry reflects takedowns after the cut-off (added in the review).
 - A failure is returned as a `Failure`, never replaced by a default.
 
-### Agent 1: dependency extraction (draft)
+### Agent 1: dependency extraction (implemented, D-049 to D-052)
 
-```
-input   { "project_id": str, "manifest_paths": [str] }
-
-output  { "contract_version": str, "project_id": str,
-          "dependencies": [ { "dependency_id": str, "package": PackageRef|null,
-                              "version_constraint": str|null,
-                              "source_file": str, "source_line": int|null,
-                              "group": str|null,                 // e.g. "dev", "optional:test"
-                              "origin": "registry"|"vcs"|"url"|"path"|"unknown" } ],
-          "failures": [Failure] }
-```
-
-Codes: `file_unreadable`, `unsupported_format`, `malformed_entry`.
+- **Code:** `src/multi_agentic_security/agents/agent1_ingestion/` (stage version `agent1/0.1`), output `contracts.pipeline.ExtractionResult`.
+- **Entry points:** `extract_files(project_id, files)` for in-memory files, `extract_zip(project_id, data, upload_name)`, `extract_directory(project_id, root, label=...)`, `extract_text(project_id, text)` for pasted text, `extract_git(project_id, url, fetcher)` for a public GitHub link (the fetcher is required; `HttpsFetcher` is the real one). Optional `limits=IntakeLimits(...)` and an injectable clock.
+- **Sources:** `requirements_txt` (`requirements*.txt`, `*-requirements.txt`, `requirements.in`, `requirements/*.txt`), `package_json`, `package_lock_json` (also `npm-shrinkwrap.json`), `python_code` (`.py`, Python blocks in Markdown or pasted text), `javascript_code` (`.js .mjs .cjs .jsx .ts .tsx .mts .cts`, JS blocks), `install_command_text` (shell scripts, Dockerfiles, shell blocks and prompted command lines in Markdown or pasted text), `archive` (ZIP), `directory`, `git_repository` (public GitHub). Manifests are parsed first; their names, and names in install commands, are used to attribute Python imports (D-050).
+- **Records:** one per declaration or lockfile entry, with the original declaration (credentials redacted), source path, line (`null` for JSON; the reasons carry a JSON pointer), dependency type, origin (`registry`, `vcs`, `url`, `path`, `unknown`), raw and normalized constraint, `extraction_status` (`ok`, `warning`, `unresolved`), warnings and reasons.
+- **Reason rule IDs:** `a1.code.{python_import,js_import,conditional_import,import_mapped,import_matches_declared_package,import_unmapped}`, `a1.install.{command,executes_package,dependency_flag}`, `a1.requirements.{parsed,pinned,range,unpinned,marker,direct_reference,editable,location,unparseable}`, `a1.npm.{declared,pinned,range,unpinned,dist_tag,alias,vcs,url,path,unrecognized_spec,non_string_spec,invalid_name}`, `a1.package_lock.{entry,version,dev_optional,bundled,install_script_declared,no_integrity}`.
+- **Failure codes (stage `agent1`):** `a1.source.{too_large,decode_error,binary_content,invalid_json,unexpected_structure,unsupported_file,unsupported_manifest,constraints_file,duplicate_path,no_manifest}`, `a1.json.duplicate_section`, `a1.requirements.{include_not_followed,package_source_option,global_option,unknown_option}`, `a1.package_json.{field_not_interpreted,section_not_object}`, `a1.package_lock.{no_entries,unknown_version,entry_not_object,workspace_entries,too_deep}`, `a1.code.{python_syntax_error,python_unparseable,js_unparseable,dynamic_import,stdlib_imports,local_imports,node_builtin_imports}`, `a1.install.{pipe_to_shell,unparseable,unsupported_tool,requirements_file_not_followed,package_source_option,no_packages,prose_line_not_read}`, `a1.source.{notebook_not_parsed,output_capped}`, `a1.git.{invalid_url,unsupported_host,fetch_error,too_large,http_status,redirect_refused}`.
+- **Failure codes (stage `intake`):** `intake.path.{absolute,traversal,nul_character,duplicate,trailing_dot_or_space}`, `intake.limit.{upload_size,entries,total_size,file_size,read_total,compression_ratio,depth,path_length}`, `intake.zip.{invalid,symlink,encrypted,entry_unreadable}`, `intake.dir.{unreadable,not_a_directory,symlink,hard_link,changed_while_reading,special_file,outside_root}`, `intake.vendored_directory_skipped`, `intake.nested_archive`, `intake.limit.code_files`. A rejected upload yields no records and a failure that says it was rejected.
+- **Safety:** uploads are read in memory as text; nothing is extracted to disk, imported, installed or executed (Python is parsed to a syntax tree only, JavaScript is tokenized); links are never followed; only files Agent 1 parses are read; repository links are downloaded as one archive into memory, never cloned.
+- **Import mapping:** Python imports map to a package only through `import_map/1` or a package named by a manifest or install command in the same upload (the upload's own package wins over the table); otherwise the record is `unresolved` with the import name as a candidate in its reasons. Whether Agent 2 should look up such candidates is an open proposal (it would let nonexistent imports be detected, but it treats an import name as a package name).
 
 ### Agent 2: evidence collection (draft)
 

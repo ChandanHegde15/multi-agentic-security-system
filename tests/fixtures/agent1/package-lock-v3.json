@@ -1,0 +1,41 @@
+{
+  "name": "fixture-app",
+  "version": "1.0.0",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": { "name": "fixture-app", "version": "1.0.0", "dependencies": { "express": "^4.18.2" } },
+    "node_modules/express": {
+      "version": "4.18.2",
+      "resolved": "https://registry.npmjs.org/express/-/express-4.18.2.tgz",
+      "integrity": "sha512-AAAA"
+    },
+    "node_modules/express/node_modules/debug": {
+      "version": "2.6.9",
+      "resolved": "https://registry.npmjs.org/debug/-/debug-2.6.9.tgz",
+      "integrity": "sha512-BBBB"
+    },
+    "node_modules/@types/node": {
+      "version": "20.1.0",
+      "resolved": "https://registry.npmjs.org/@types/node/-/node-20.1.0.tgz",
+      "integrity": "sha512-CCCC",
+      "dev": true
+    },
+    "node_modules/my-alias": {
+      "name": "left-pad",
+      "version": "1.3.0",
+      "resolved": "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz",
+      "integrity": "sha512-DDDD"
+    },
+    "node_modules/private-thing": {
+      "version": "0.1.0",
+      "resolved": "https://npm.corp.example.invalid/private-thing-0.1.0.tgz",
+      "hasInstallScript": true
+    },
+    "node_modules/fsevents": { "version": "2.3.3", "optional": true, "integrity": "sha512-EEEE",
+      "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz" },
+    "node_modules/local-lib": { "resolved": "packages/local-lib", "link": true },
+    "packages/local-lib": { "name": "local-lib", "version": "0.0.1" },
+    "node_modules/broken": "not-an-object"
+  }
+}

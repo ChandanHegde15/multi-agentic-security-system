@@ -1,0 +1,22 @@
+{
+  "name": "fixture-app",
+  "version": "1.0.0",
+  "scripts": { "postinstall": "echo never-run" },
+  "dependencies": {
+    "express": "^4.18.2",
+    "lodash": "4.17.21",
+    "my-alias": "npm:left-pad@^1.3.0",
+    "from-git": "github:someone/somerepo#v1",
+    "local-lib": "file:../local-lib",
+    "tarball": "https://user:tok@example.invalid/t.tgz",
+    "tagged": "next",
+    "@Scope/Thing": "~1.2.0",
+    "bad name!": "1.0.0",
+    "weird": {"version": "1"},
+    "lodash": "4.17.20"
+  },
+  "devDependencies": { "jest": "29.7.0" },
+  "optionalDependencies": { "fsevents": "*" },
+  "peerDependencies": { "react": ">=17 <19" },
+  "overrides": { "minimist": "1.2.8" }
+}

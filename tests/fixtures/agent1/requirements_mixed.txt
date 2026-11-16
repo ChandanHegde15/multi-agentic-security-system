@@ -1,0 +1,17 @@
+# Hand-written fixture for Agent 1 tests. Package names are illustrative.
+Flask==2.3.3
+requests>=2.31,<3  # trailing comment
+Django_Rest.Framework[extra1]  ~= 3.14
+numpy
+pandas ; python_version >= "3.9"
+--index-url https://user:s3cret@private.example.invalid/simple
+-r requirements-dev.txt
+-e git+https://example.invalid/org/tool.git#egg=local_tool
+-e ./libs/internal
+urllib3==2.0.7 \
+    --hash=sha256:0000000000000000000000000000000000000000000000000000000000000000
+mypkg @ https://example.invalid/mypkg-1.0.tar.gz
+https://example.invalid/wheels/anon-1.0-py3-none-any.whl
+this is not a requirement!!
+token-pkg==${PKG_VERSION}
+--weird-option

@@ -4,9 +4,9 @@ Research project on detecting nonexistent (for example LLM-hallucinated), typosq
 
 ## Status
 
-- The research foundation and the narrowed research direction are approved (see `DECISIONS.md`, D-017 to D-048). The user-facing system is specified in D-047: upload (files, ZIP, Git link or generated code) → Agents 1 to 5 → per-agent dashboards with an explanation for every decision.
-- Implemented: the frozen **Agent 3 v1 baseline** (`src/multi_agentic_security/agents/agent3_risk/baseline_v1/`), the evidence record contract, the pipeline contracts between all five agents (`src/multi_agentic_security/contracts/`), and source adapters that build the normalized evidence tables (`src/multi_agentic_security/datasets/`; results in `docs/datasets/DATASET_EVALUATION.md`).
-- Not yet implemented: Agents 1, 2, 4 and 5, Agent 3 v2, the pipeline orchestrator, the evaluation harness, the backend and the dashboards. Work proceeds in the phases listed in D-047.
+- The research foundation and the narrowed research direction are approved (see `DECISIONS.md`, D-017 to D-052). The user-facing system is specified in D-047: upload (files, ZIP, Git link or generated code) → Agents 1 to 5 → per-agent dashboards with an explanation for every decision.
+- Implemented: the frozen **Agent 3 v1 baseline** (`src/multi_agentic_security/agents/agent3_risk/baseline_v1/`), the evidence record contract, the pipeline contracts between all five agents (`src/multi_agentic_security/contracts/`), source adapters that build the normalized evidence tables (`src/multi_agentic_security/datasets/`; results in `docs/datasets/DATASET_EVALUATION.md`), and **Agent 1** (`src/multi_agentic_security/agents/agent1_ingestion/`): dependencies from `requirements*.txt`, `package.json` and `package-lock.json`, imports in Python and JavaScript/TypeScript code, install commands in scripts, Dockerfiles and text, with safe in-memory intake of ZIP archives, folders and public GitHub links (D-049 to D-052).
+- Not yet implemented: Agents 2, 4 and 5, Agent 3 v2, the pipeline orchestrator, the evaluation harness, the backend and the dashboards. Work proceeds in the phases listed in D-047.
 
 ## Research question
 
