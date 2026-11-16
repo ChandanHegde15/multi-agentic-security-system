@@ -1,0 +1,9 @@
+# Hand-written test manifest (invented package names except well-known ones)
+requests==2.31.0
+PyYAML>=6
+compromised-lib==1.2.0
+reqeusts-hallucinated
+numpy
+brokenpkg
+undated-bad==0.1
+git+https://github.com/example/proj.git#egg=gitpkg

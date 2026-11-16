@@ -1,0 +1,22 @@
+{
+  "adapter_version": "fixture/1",
+  "counts": {
+    "records": 1,
+    "records_without_published": 0
+  },
+  "files": {
+    "records.jsonl": {
+      "bytes": 717,
+      "sha256": "5b634a916cbcac6da50cad20ba3d52202bae7a905bfe971ff77bb9fb2d7aafae"
+    }
+  },
+  "generated_at": "2026-11-16T00:00:00+00:00",
+  "licenses": [
+    "CC0-1.0 (test fixture)"
+  ],
+  "schema_version": "evidence/1.1",
+  "source_versions": [
+    "fixture-1"
+  ],
+  "table": "osv_pypi"
+}

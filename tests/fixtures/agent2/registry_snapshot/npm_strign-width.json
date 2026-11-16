@@ -1,0 +1,8 @@
+{
+ "body_raw": "{\"error\":\"Not found\"}",
+ "ecosystem": "npm",
+ "format": "registry_snapshot/1",
+ "http_status": 404,
+ "name": "strign-width",
+ "retrieved_at": "2026-11-15T10:00:00+00:00"
+}

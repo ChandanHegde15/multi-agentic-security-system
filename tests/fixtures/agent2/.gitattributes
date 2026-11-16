@@ -1,0 +1,2 @@
+# Hash-checked fixtures: keep bytes identical on every checkout (no line-ending conversion).
+* -text

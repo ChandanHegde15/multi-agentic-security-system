@@ -1,0 +1,8 @@
+{
+ "ecosystem": "pypi",
+ "error": "timeout: connection timed out",
+ "format": "registry_snapshot/1",
+ "http_status": null,
+ "name": "timeoutpkg",
+ "retrieved_at": "2026-11-15T10:00:00+00:00"
+}

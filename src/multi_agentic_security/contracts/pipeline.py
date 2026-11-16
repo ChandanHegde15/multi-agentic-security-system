@@ -1,4 +1,7 @@
-"""Pipeline contracts between the five agents, version ``pipeline/0.1``.
+"""Pipeline contracts between the five agents, version ``pipeline/0.2``.
+
+0.2 (D-054): ``RegistryResult.evidence_store`` records which evidence tables a run
+used (versions, record counts, SHA-256), so every result can be reproduced.
 
 Every stage consumes the validated output of the previous stage; nothing is
 passed as free text. Every decision carries ``reasons`` (rule, inputs,
@@ -24,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from multi_agentic_security.datasets.names import normalize_name
 
-CONTRACT_VERSION = "pipeline/0.1"
+CONTRACT_VERSION = "pipeline/0.2"
 
 Ecosystem = Literal["pypi", "npm"]
 Stage = Literal["intake", "agent1", "agent2", "agent3", "agent4", "agent5", "pipeline"]
@@ -72,7 +75,7 @@ class PackageRef(Contract):
 
 
 class StageHeader(Contract):
-    contract_version: Literal["pipeline/0.1"] = CONTRACT_VERSION
+    contract_version: Literal["pipeline/0.2"] = CONTRACT_VERSION
     project_id: str = Field(min_length=1)
     stage_version: str = Field(min_length=1, description="Version of the agent implementation that produced this output")
     started_at: datetime
@@ -169,6 +172,9 @@ class RegistryVerification(Contract):
     metadata: dict[str, Any] = Field(default_factory=dict, description="Selected registry fields (summary, homepage, licence, ...)")
     source_url: Optional[str] = None
     retrieved_at: Optional[datetime] = None
+    retrieved_after_cutoff: Optional[bool] = Field(
+        default=None, description="0.2 (D-056): set when a cut-off is given; True means the registry facts describe "
+                                  "the time of retrieval, not the cut-off")
     error: Optional[str] = None
     evidence_ids: list[str] = Field(default_factory=list)
     reasons: list[Reason] = Field(min_length=1)
@@ -187,9 +193,47 @@ class RegistryVerification(Contract):
         return self
 
 
+class EvidenceTableInfo(Contract):
+    """One evidence table as loaded for a run (from its verified MANIFEST.json)."""
+
+    table: str = Field(min_length=1, description="family folder / table folder, e.g. 'vulnerable/osv_pypi_a2'")
+    loaded: bool
+    records: int = Field(ge=0)
+    records_sha256: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    records_bytes: Optional[int] = Field(default=None, ge=0)
+    schema_version: Optional[str] = None
+    adapter_version: Optional[str] = None
+    source_versions: list[str] = Field(default_factory=list)
+    licenses: list[str] = Field(default_factory=list)
+    undated_records: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _check(self) -> "EvidenceTableInfo":
+        if self.loaded and not self.records_sha256:
+            raise ValueError("a loaded table must record its SHA-256")
+        if not self.loaded and self.records:
+            raise ValueError("a table that did not load has no records")
+        return self
+
+
+class EvidenceStoreInfo(Contract):
+    store_version: str = Field(min_length=1)
+    complete: bool
+    records_indexed: int = Field(ge=0)
+    tables: list[EvidenceTableInfo]
+
+    @model_validator(mode="after")
+    def _check(self) -> "EvidenceStoreInfo":
+        if self.complete and not all(t.loaded for t in self.tables):
+            raise ValueError("a complete store needs every table loaded")
+        return self
+
+
 class RegistryResult(StageHeader):
     registry_mode: RegistryMode
     evidence_cutoff: Optional[datetime] = None
+    evidence_store: Optional[EvidenceStoreInfo] = Field(
+        default=None, description="Tables used for the evidence lookup; None when no store was given")
     results: list[RegistryVerification]
     failures: list[Failure] = Field(default_factory=list)
 
@@ -199,6 +243,7 @@ class RegistryResult(StageHeader):
 FindingType = Literal[
     "nonexistent", "typosquat_listed", "name_similar_to_popular", "malicious_reported",
     "compromised_version", "vulnerable", "withdrawn_only", "no_evidence", "unknown",
+    "registry_security_hold",   # 0.2 (D-055): the registry replaced the package with a security holding package
 ]
 
 
@@ -369,7 +414,7 @@ class PipelineSummary(Contract):
 
 
 class PipelineReport(Contract):
-    contract_version: Literal["pipeline/0.1"] = CONTRACT_VERSION
+    contract_version: Literal["pipeline/0.2"] = CONTRACT_VERSION
     project_id: str
     created_at: datetime
     extraction: ExtractionResult

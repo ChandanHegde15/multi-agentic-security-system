@@ -1,0 +1,22 @@
+{
+  "adapter_version": "fixture/1",
+  "counts": {
+    "records": 1,
+    "records_without_published": 1
+  },
+  "files": {
+    "records.jsonl": {
+      "bytes": 732,
+      "sha256": "99f69fe5a6058fe186dd4a8fbb0101dbb30f3eea759afc53bbc6ac14bbfc5b6d"
+    }
+  },
+  "generated_at": "2026-11-16T00:00:00+00:00",
+  "licenses": [
+    "CC0-1.0 (test fixture)"
+  ],
+  "schema_version": "evidence/1.1",
+  "source_versions": [
+    "fixture-1"
+  ],
+  "table": "ecosystems_typosquats"
+}

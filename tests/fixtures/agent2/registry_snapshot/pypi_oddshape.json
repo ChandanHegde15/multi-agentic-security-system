@@ -1,0 +1,13 @@
+{
+ "body": {
+  "info": {
+   "name": "oddshape"
+  },
+  "releases": []
+ },
+ "ecosystem": "pypi",
+ "format": "registry_snapshot/1",
+ "http_status": 200,
+ "name": "oddshape",
+ "retrieved_at": "2026-11-15T10:00:00+00:00"
+}

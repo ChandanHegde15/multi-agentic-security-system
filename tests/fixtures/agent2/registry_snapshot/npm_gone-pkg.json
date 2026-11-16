@@ -1,0 +1,19 @@
+{
+ "body": {
+  "name": "gone-pkg",
+  "time": {
+   "created": "2025-01-01T00:00:00.000Z",
+   "unpublished": {
+    "time": "2025-02-01T00:00:00.000Z",
+    "versions": [
+     "1.0.0"
+    ]
+   }
+  }
+ },
+ "ecosystem": "npm",
+ "format": "registry_snapshot/1",
+ "http_status": 200,
+ "name": "gone-pkg",
+ "retrieved_at": "2026-11-15T10:00:00+00:00"
+}

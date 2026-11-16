@@ -1,0 +1,22 @@
+{
+  "adapter_version": "fixture/1",
+  "counts": {
+    "records": 4,
+    "records_without_published": 0
+  },
+  "files": {
+    "records.jsonl": {
+      "bytes": 2906,
+      "sha256": "2001c29e15cb5fdb901da1a3ab5f88013e645e7d35164fabe86b546f9558f354"
+    }
+  },
+  "generated_at": "2026-11-16T00:00:00+00:00",
+  "licenses": [
+    "CC0-1.0 (test fixture)"
+  ],
+  "schema_version": "evidence/1.1",
+  "source_versions": [
+    "fixture-1"
+  ],
+  "table": "openssf_a2"
+}

@@ -1,0 +1,8 @@
+{
+ "body_raw": "{\"message\": \"Not Found\"}",
+ "ecosystem": "pypi",
+ "format": "registry_snapshot/1",
+ "http_status": 404,
+ "name": "reqeusts-hallucinated",
+ "retrieved_at": "2026-11-15T10:00:00+00:00"
+}

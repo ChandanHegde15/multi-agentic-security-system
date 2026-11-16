@@ -1,4 +1,4 @@
-"""Agent 1: deterministic dependency extraction (pipeline/0.1 ``ExtractionResult``).
+"""Agent 1: deterministic dependency extraction (pipeline contract ``ExtractionResult``).
 
 Sources: ``requirements*.txt``, ``package.json``, ``package-lock.json`` /
 ``npm-shrinkwrap.json``; imports in Python and JavaScript/TypeScript code;

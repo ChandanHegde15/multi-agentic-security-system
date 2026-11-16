@@ -1,0 +1,20 @@
+{
+ "body": {
+  "dist-tags": {
+   "latest": "22.0.0"
+  },
+  "license": "MIT",
+  "name": "@types/node",
+  "time": {
+   "22.0.0": "2024-07-01T00:00:00.000Z"
+  },
+  "versions": {
+   "22.0.0": {}
+  }
+ },
+ "ecosystem": "npm",
+ "format": "registry_snapshot/1",
+ "http_status": 200,
+ "name": "@types/node",
+ "retrieved_at": "2026-11-15T10:00:00+00:00"
+}

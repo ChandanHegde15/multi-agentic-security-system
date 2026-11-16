@@ -1,0 +1,22 @@
+{
+  "adapter_version": "fixture/1",
+  "counts": {
+    "records": 4,
+    "records_without_published": 0
+  },
+  "files": {
+    "records.jsonl": {
+      "bytes": 2890,
+      "sha256": "3c979fef7ca1a9fd7125fce1adbdaca96cd4b1cb6a5a2960887aa9f2ac36db13"
+    }
+  },
+  "generated_at": "2026-11-16T00:00:00+00:00",
+  "licenses": [
+    "CC0-1.0 (test fixture)"
+  ],
+  "schema_version": "evidence/1.1",
+  "source_versions": [
+    "fixture-1"
+  ],
+  "table": "pypi_popular"
+}

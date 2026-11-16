@@ -1,0 +1,19 @@
+{
+ "body": {
+  "dist-tags": {
+   "latest": "7.2.0"
+  },
+  "name": "string-width",
+  "time": {
+   "7.2.0": "2024-06-25T00:00:00.000Z"
+  },
+  "versions": {
+   "7.2.0": {}
+  }
+ },
+ "ecosystem": "npm",
+ "format": "registry_snapshot/1",
+ "http_status": 200,
+ "name": "string-width",
+ "retrieved_at": "2026-11-15T10:00:00+00:00"
+}

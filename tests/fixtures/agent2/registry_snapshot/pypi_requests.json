@@ -1,0 +1,45 @@
+{
+ "body": {
+  "info": {
+   "home_page": "https://requests.readthedocs.io",
+   "license": "Apache-2.0",
+   "name": "requests",
+   "summary": "Python HTTP for Humans.",
+   "version": "2.32.3"
+  },
+  "releases": {
+   "0.0.1": [],
+   "2.31.0": [
+    {
+     "filename": "x.whl",
+     "upload_time_iso_8601": "2023-05-22T15:12:44.175Z",
+     "yanked": false
+    }
+   ],
+   "2.32.0": [
+    {
+     "filename": "x.whl",
+     "upload_time_iso_8601": "2024-05-20T15:00:00.000Z",
+     "yanked": true
+    }
+   ],
+   "2.32.3": [
+    {
+     "filename": "x.whl",
+     "upload_time_iso_8601": "2024-05-29T15:37:47.000Z",
+     "yanked": false
+    },
+    {
+     "filename": "x.whl",
+     "upload_time_iso_8601": "2024-05-29T15:38:00.000Z",
+     "yanked": false
+    }
+   ]
+  }
+ },
+ "ecosystem": "pypi",
+ "format": "registry_snapshot/1",
+ "http_status": 200,
+ "name": "requests",
+ "retrieved_at": "2026-11-15T10:00:00+00:00"
+}

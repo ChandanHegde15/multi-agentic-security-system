@@ -1,0 +1,22 @@
+{
+  "adapter_version": "fixture/1",
+  "counts": {
+    "records": 1,
+    "records_without_published": 1
+  },
+  "files": {
+    "records.jsonl": {
+      "bytes": 713,
+      "sha256": "f6bd891be32fe5280417b732e4a81f0b21b8a03212bbcc39758885ea26232ae1"
+    }
+  },
+  "generated_at": "2026-11-16T00:00:00+00:00",
+  "licenses": [
+    "CC0-1.0 (test fixture)"
+  ],
+  "schema_version": "evidence/1.1",
+  "source_versions": [
+    "fixture-1"
+  ],
+  "table": "malregistry_listing"
+}

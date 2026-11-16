@@ -1,0 +1,22 @@
+{
+  "adapter_version": "fixture/1",
+  "counts": {
+    "records": 2,
+    "records_without_published": 2
+  },
+  "files": {
+    "records.jsonl": {
+      "bytes": 1452,
+      "sha256": "fbdb339108e19efb86874edd4a090097e0f151a2f82e80df6f4631ef804cbf0c"
+    }
+  },
+  "generated_at": "2026-11-16T00:00:00+00:00",
+  "licenses": [
+    "CC0-1.0 (test fixture)"
+  ],
+  "schema_version": "evidence/1.1",
+  "source_versions": [
+    "fixture-1"
+  ],
+  "table": "yctt_targets"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "fixture-app",
+  "dependencies": {
+    "lodash": "^4.17.21",
+    "@types/node": "22.0.0",
+    "evil-pkg": "1.0.0",
+    "gone-pkg": "1.0.0",
+    "string-width": "^7.0.0",
+    "strign-width": "1.0.0",
+    "local-thing": "file:../local-thing"
+  }
+}
