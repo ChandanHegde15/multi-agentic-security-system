@@ -167,7 +167,9 @@ def test_declared_exact_constraint_and_resolution():
     ("a==1.5\n", None, dict(scope=S.RANGE, rng=">=1.0,<2.0"), "affected"),
     ("a==2.0\n", None, dict(scope=S.RANGE, rng=">=1.0,<2.0"), "not_affected"),
     ("a==2.0rc1\n", None, dict(scope=S.RANGE, rng=">=1.0,<3.0"), "affected"),        # pre-releases count in ranges
-    ("a==2.0rc1\n", None, dict(scope=S.RANGE, rng="<2.0"), "not_affected"),          # PEP 440: <2.0 excludes 2.0 pre-releases
+    # Since D-060 evidence ranges are OSV intervals in version order, where 2.0rc1 < 2.0 (PEP 440
+    # specifier semantics, used before, left 2.0 pre-releases out of "<2.0").
+    ("a==2.0rc1\n", None, dict(scope=S.RANGE, rng="<2.0"), "affected"),
     ("a~=1.0\n", ["1.0", "1.9", "2.0"], dict(scope=S.RANGE, rng=">=1.5,<2.0"), "likely_affected"),
     ("a==1.0\n", None, dict(scope=S.ALL), "all_versions"),
 ])

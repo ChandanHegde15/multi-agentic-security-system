@@ -122,11 +122,28 @@ The table leaves out `unknown` from registry mode `off`, which is on every Part 
 - Only Part B has registry data. Without it, range declarations in Part A cannot be resolved.
 - The 12 repositories are popular open-source projects, so the run says little about uploads that contain hallucinated or malicious names.
 
-## Agent 3 behaviour (state after D-057, for the paper)
+### RUN-003 repeat after the third review (D-058, 2026-11-17)
+
+- Same inputs, store and snapshot as RUN-003, run offline (no lookups): `research/datasets/runs/run003_2026-11-17/results_after_d058.json` (SHA-256 `302af5bae8c88a343985250b380fe7ba4636805ef72ffdb03cafc2c669b1974b`).
+- Result: no row changed against the D-057 results, in Part A or Part B, at any of the three cut-offs; 0 leaks.
+- Reason (verified): the current evidence store holds no npm record with a version range, so the corrected pre-release reading of npm evidence ranges has nothing to act on; the other D-058 cases (`*` with a pre-release `latest`, a yanked release that changes the choice under a cut-off, a security hold after the cut-off) do not occur in these inputs. The corrections matter for later npm advisory data and for held-out runs on other inputs.
+
+### RUN-003 repeat after the Agent 5 review (D-060, 2026-11-17)
+
+- Same inputs, offline: `research/datasets/runs/run003_2026-11-17/results_after_d060.json` (SHA-256 `8de949b2ac908ae4d745ed4bd6929985da75f2abc4f7b042459b406a209a0835`).
+- Result: no row changed against the D-058 results, in Part A or Part B, at any cut-off; 0 leaks. No input in RUN-003 pins or resolves to a pre-release of a range's upper bound, so the interval reading of PyPI evidence ranges (D-060 a) changes nothing here.
+- Agent 5 was not run on real data: Agent 4 does not exist yet, so there are no real recommendations to verify.
+
+### RUN-003 repeat after the D-060 review (D-061, 2026-11-17)
+
+- Same inputs, offline: `research/datasets/runs/run003_2026-11-17/results_after_d061.json` (SHA-256 `66aef00421cfa7d3fb4a0f3d2b36b315271e75d7773eb05e5dd6c75b9dd20f7e`).
+- Result: no row changed against the D-060 results, in either part, at any cut-off; 0 leaks.
+
+## Agent 3 behaviour (state after D-061, for the paper)
 
 - **What this state rests on:**
   - RUN-002 (18 dependencies) and RUN-003 (3,897 real-repository dependencies plus 98 generated declarations, at three cut-offs);
-  - two independent scoring reviews (D-056, D-057);
+  - three independent scoring reviews (D-056, D-057, D-058) and the two Agent 5 reviews (D-060, D-061), which also corrected Agent 3;
   - version logic checked on 99 documented node-semver cases;
   - PEP 440 and pip edge cases: `===`, local versions, `==1.*`, `!=`, `~=`, only pre-releases, only yanked releases, invalid registry versions.
 - **v1 versus v2 (described, not a result):**
@@ -140,3 +157,90 @@ The table leaves out `unknown` from registry mode `off`, which is on every Part 
   - Name similarity is off before 2026-11-01, because of the popular-list dates. For npm it rests on a 232-name target list that gives false positives on real projects.
   - Evidence is dated only by publication, so later withdrawals and range edits are visible in held-out runs.
   - Most malicious sources are undated, so version-specific malicious evidence largely disappears under a cut-off.
+
+## Agent 5 behaviour (state after D-061, for the paper)
+
+- **What this state rests on:**
+  - two independent reviews (D-060, D-061) and 181 Agent 5 tests (unit, review regressions, integration Agent 1 → 2 → 3 → hand-written recommendations → 5);
+  - no run on real recommendations yet, because Agent 4 does not exist.
+- **What "verified" means:** every required check passed or did not apply, with the evidence and registry data known at the cut-off. It is not a statement that the dependency or target is safe; Agent 5 cannot detect an unreported malicious package (`SYSTEM_ARCHITECTURE.md` §3).
+- **Fail-closed design:** anything that cannot be checked is "needs review", never "verified". This includes a missing or incomplete evidence store, a failed or refused registry lookup, a target not in the snapshot, an unreadable version, and history that the snapshot cannot show.
+- **Consequences for RQ1 reporting:**
+  - Under a cut-off, recommended targets need recorded registry lookups; targets missing from the snapshot are "needs review". Coverage loss must be reported next to the unsafe rate.
+  - A hallucinated target version under a cut-off is "needs review", not "rejected" (D-061 g). Hallucinated versions must be counted from the scorer's own data, not from Agent 5's rejections.
+  - A report withdrawn after the cut-off already looks withdrawn in held-out runs (D-060 i).
+
+## PLAN-001 — Recorded registry lookups for recommended targets in held-out runs (plan, not a result; 2026-11-17)
+
+**Status: plan only. Nothing below has been run.** The live lookups need the owner's go-ahead before the first batch. Registry lookups are metadata-only and time-stamped (D-021, D-027).
+
+**Why it is needed:**
+- Agent 5 checks a recommended target against registry data. In held-out runs it refuses live lookups, so a target that is not in the snapshot is "needs review" (D-059 e).
+- Without recorded target lookups, C1–C5 coverage would mostly reflect which targets happen to be in the snapshot, not what the recommenders did.
+
+**Procedure, per experiment batch (generate first, then look up, then verify):**
+1. **Generate.** Run every Agent 4 variant (R0, and LLM-U and LLM-G for each model and seed) on the frozen case set. Store the `RecommendationResult`s and the raw responses. No verification in this step.
+2. **Collect.** Gather the union of names that need registry data and are not yet recorded:
+   - `replace` targets;
+   - claim subjects other than the dependency.
+   `upgrade` and `downgrade` keep the dependency's own package, whose lookup Agent 2 already recorded. A name that fails name validation is counted and not looked up.
+3. **Record.** One metadata-only lookup per name with Agent 2's HTTP client:
+   - written as `registry_snapshot/1` files into a new folder `research/datasets/registry_snapshots/<run>_targets_<date>/`, with a `RUN_RECORD.json` (times, client version, counts per status, file hashes);
+   - nothing is downloaded or installed;
+   - each name is looked up once per batch;
+   - a later batch writes a new folder and never edits an earlier one.
+4. **Verify.** Agent 5 reads the dependency snapshot and the target snapshot together. This needs a read-only client over several snapshot folders, which is a Phase 7 task; until then the folders cannot be combined without copying.
+5. **Freeze.** The folder hashes go into the protocol before scoring.
+
+**Fairness:**
+- One target snapshot serves every variant, model and seed of a batch.
+- The lookups happen after all generation, so no variant influences what is recorded for another.
+- All lookups lie after the cut-off. Agent 5 filters versions by upload time in the same way for every variant.
+
+**Expected effect on Agent 5 (from D-059 e and D-061 g):**
+- A target name that is `not_found` or under a security hold in a lookup recorded after the cut-off is "needs review", not "rejected", because the lookup cannot show the state at the cut-off.
+- A stated target version missing from the snapshot is "needs review" under a cut-off.
+- Without a cut-off, both are "rejected".
+
+**How hallucinated targets are counted.** The scorer counts these from its own reading of the snapshot and the evidence, independently of Agent 5 (D-036). Agent 5's verdicts are tabulated next to the counts, never used as the count.
+- **Nonexistent target package:**
+  - the target name is `not_found` in the target snapshot;
+  - and no evidence record of any family names it at any time;
+  - and it is on no benign list.
+  - A `not_found` name that evidence does name is counted separately as a **removed target** (typically a removed malicious package).
+- **Nonexistent target version (D-061 g):**
+  - the stated version is not among all the versions the snapshot lists for the target (including versions uploaded after the cut-off and yanked ones).
+  - A stated version that exists but was uploaded on or after the cut-off is counted separately as a **future version**: it was not available at the cut-off.
+  - A missing version that an evidence record names (for example a deleted malicious release) is counted as a **removed version**, not as hallucinated.
+- **Denominators:**
+  - for package counts, recommendations with a target;
+  - for version counts, recommendations with a stated target version;
+  - reported per variant, model and family.
+- **Verifier cost:** the "needs review" verdicts that these cases cause under a cut-off are reported as a coverage cost of verification. They are not counted as wrong rejections or as safe accepts.
+
+**Limits:**
+- A normal release deleted between the cut-off and the lookup looks hallucinated. Registries rarely delete normal releases; malicious ones are caught by the evidence cross-check above.
+- Lookups record today's state, so yanks and security holds after the cut-off are visible. Agent 5 already treats both as not historical.
+
+## Agent 4 behaviour (state after D-063, for the paper)
+
+- **What this state rests on:**
+  - one independent review (D-063);
+  - 76 Agent 4 tests (R0 rules, LLM interface with recorded responses, review regressions);
+  - an integration test Agent 1 → 2 → 3 → 4 (R0) → 5 on the hand-written test fixtures, with and without a cut-off.
+  - No run on real data, and no LLM call: providers and models are not chosen yet.
+- **R0 against Agent 5 on the fixtures** (19 dependencies; a test check, not a result):
+  - without a cut-off, every R0 recommendation is verified;
+  - with the cut-off 2026-01-01, one is "needs review": a `keep` whose pinned version was uploaded after the cut-off, so Agent 5 cannot check it. This is a correct verifier decision.
+  - Two R0 defects were found this way before the review and corrected in D-062: the absence claim on a package with records for other versions, and a stated fix that is yanked on PyPI.
+- **What R0 adds to the rules in `RESEARCH_QUESTIONS.md` §7** (fixed before any run, D-062 and D-063):
+  - precedence between findings;
+  - `investigate` for undetermined applicability and for name similarity;
+  - `abstain` for unknown state;
+  - `keep` for withdrawn-only;
+  - replacement refused when the imitated package is itself flagged;
+  - the upgrade target is a released, final, clean version at or above a stated fix.
+- **Consequences for RQ1 reporting:**
+  - R0's `abstain` and `investigate` count against coverage, not against safety.
+  - `fixed_in` names the recommended version, which may lie above the advisory's own fix (D-063 d).
+  - LLM citations of IDs that were not given are kept and flagged, so the unsupported-claim rate can be measured (D-062 f).

@@ -168,7 +168,9 @@ def test_r2_4_yanked_list_ignored_under_cutoff():
     s = store_of(rec(F.MALICIOUS, "pypi", "yk", S.LISTED, version="1.1"))
     _, rr = run([("requirements.txt", "yk\n")], s, s,
                 {("pypi", "yk"): found("yk", ["1.0", "1.1"], yanked=["1.1"])}, cutoff=CUT)
-    assert finding(rr.assessments[0], "compromised_version").detail["applicability"] == "likely_affected"
+    # Since D-058: with today's yanked list pip would install 1.0, without it 1.1; the two disagree,
+    # so the finding stays, as 'undetermined' (it was 'likely_affected' under D-057).
+    assert finding(rr.assessments[0], "compromised_version").detail["applicability"] == "undetermined"
 
 
 def test_r2_4_yanked_list_used_without_cutoff():

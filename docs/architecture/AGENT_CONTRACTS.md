@@ -1,11 +1,12 @@
 # Agent contracts
 
-Status 2026-11-16:
+Status 2026-11-17:
 - **Agent 1** is implemented (see "Agent 1: dependency extraction" below, D-049 to D-052).
 - **Agent 2** is implemented (see "Agent 2: registry verification and evidence lookup" below, D-053).
-- **Agent 3 v2** and the adapter to the frozen v1 baseline are implemented (see "Agent 3: risk findings" below, D-055).
+- **Agent 3 v2** and the adapter to the frozen v1 baseline are implemented (see "Agent 3: risk findings" below, D-055 to D-058, D-060, D-061).
+- **Agent 5** is implemented (see "Agent 5: independent verification" below, D-059 to D-061).
 - The **Agent 3 v1 baseline** contract is implemented. It is documented below from the code in `src/multi_agentic_security/agents/agent3_risk/baseline_v1/` and is unchanged.
-- **Draft contracts** for Agents 4 and 5 are at the end of this file. They are **approved as the design baseline (D-025) but not implemented**; changes during implementation go through recorded decisions. The design rationale is in `SYSTEM_ARCHITECTURE.md`.
+- **Agent 4** is implemented (see "Agent 4: recommendation" below, D-062): the R0 rules and the provider-independent LLM interface; no provider adapter exists yet. The design rationale is in `SYSTEM_ARCHITECTURE.md`.
 
 ## Requirements that apply to every new contract (from approved decisions)
 
@@ -99,7 +100,7 @@ Either an `inputs.VerificationResult`, or a mapping with the same shape:
 
 ---
 
-## Draft contracts (approved as design baseline, D-025; not implemented)
+## Draft contracts (approved as design baseline, D-025; now implemented, see each agent)
 
 All records carry `contract_version` (starting at `"0.1-draft"`). Field names may change during implementation through recorded decisions.
 
@@ -161,54 +162,75 @@ Rules that apply to every contract:
 
 ### Agent 3: risk findings (implemented, D-055)
 
-- **Code:** `src/multi_agentic_security/agents/agent3_risk/` (stage `agent3/0.1`, findings `agent3_v2/0.1`): `assess.py`, `versions.py`, `npm_semver.py`, `similarity_v2.py`, `v1_adapter.py` (D-055, D-056). Output `contracts.pipeline.RiskResult`.
+- **Code:** `src/multi_agentic_security/agents/agent3_risk/` (stage `agent3/0.1`, findings `agent3_v2/0.1`): `assess.py`, `versions.py`, `similarity_v2.py`, `v1_adapter.py` (D-055 to D-058). The npm range grammar is in the neutral module `src/multi_agentic_security/versioning/npm_semver.py`, shared with Agent 5 (D-058). Output `contracts.pipeline.RiskResult`.
 - **Entry point:** `assess(extraction, registry, *, evidence_store, clock=...)`. The cut-off is taken from `registry.evidence_cutoff`.
 - **Per dependency:** `baseline_v1` (frozen v1 score, unchanged, labelled `agent3/v1`), `findings` (v2, one per family, no combined score), `reference_package` (typosquat target or the single similar popular name), `reasons` (first `a3.v1.baseline`, last `a3.summary`).
 - **v1 status map:** `found`/`security_placeholder` -> `verified`; `not_found` -> `not_found`; `lookup_error`/`invalid_response` -> `registry_error`; `not_checked` -> `unsupported_ecosystem` when Agent 2 said so, else `registry_error`; unresolved -> no name (v1 returns `invalid_input`).
-- **Findings:** `malicious_reported`, `compromised_version`, `withdrawn_only`, `vulnerable` (detail `advisories`, `fixed_in_stated`, `fixed_in_released`, `fixed_in_note`), `typosquat_listed`, `nonexistent` (registry `not_found`, evidence searched in a complete, matching store, no record of any family names it, not a post-cut-off snapshot), `registry_security_hold` (`pipeline/0.2`), `name_similar_to_popular` (edit distance 1 to a popular-list name known before the cut-off), `unknown`, `no_evidence` (not a safety statement). Version-scoped findings carry `detail.applicability`: `all_versions`, `affected`, `likely_affected`, `possible`, `undetermined`; records that only cover other allowed versions (`allowed_not_resolved`), a reported release that the constraint allows but that is no longer in the registry when no cut-off is set (`removed_from_registry`, D-057), or versions the constraint excludes (`not_affected`) give a reason, not a finding. `withdrawn_only` is version-aware too (D-057).
-- **Reason rule IDs:** `a3.v1.baseline`, `a3.summary`, `a3.malicious.whole_package.<applicability>`, `a3.malicious.version.<applicability>`, `a3.<family>.installed_version_not_affected`, `a3.<family>.other_versions_only`, `a3.vulnerable.<applicability>`, `a3.withdrawn.{only,with_malicious}`, `a3.typosquat.listed`, `a3.nonexistent.{registry_not_found,published_before,evidence_not_checked,not_historical}`, `a3.cutoff.no_version_before_cutoff`, `a3.version.pin_not_in_registry`, `a3.evidence.incomplete`, `a3.registry.{security_hold,security_hold_not_historical}`, `a3.similarity.{edit_distance_1,no_list,not_checked}`, `a3.unknown.{unresolved,registry}`, `a3.evidence.not_used`, `a3.no_evidence`.
+- **Findings:** `malicious_reported`, `compromised_version`, `withdrawn_only`, `vulnerable` (detail `advisories`, `fixed_in_stated`, `fixed_in_released`, `fixed_in_note`), `typosquat_listed`, `nonexistent` (registry `not_found`, evidence searched in a complete, matching store, no record of any family names it, not a post-cut-off snapshot), `registry_security_hold` (`pipeline/0.2`), `name_similar_to_popular` (edit distance 1 to a popular-list name known before the cut-off), `unknown`, `no_evidence` (not a safety statement). Version-scoped findings carry `detail.applicability`: `all_versions`, `affected`, `likely_affected`, `possible`, `undetermined`; records that only cover other allowed versions (`allowed_not_resolved`), a reported release that the constraint allows but that is no longer in the registry when no cut-off is set (`removed_from_registry`, D-057), or versions the constraint excludes (`not_affected`) give a reason, not a finding. `withdrawn_only` is version-aware too (D-057). Under a cut-off, when today's yanked list would change the installed version and the two choices disagree about a record, the applicability is `undetermined` (D-058).
+- **Reason rule IDs:** `a3.v1.baseline`, `a3.summary`, `a3.malicious.whole_package.<applicability>`, `a3.malicious.version.<applicability>`, `a3.<family>.installed_version_not_affected`, `a3.<family>.reported_release_removed`, `a3.<family>.other_versions_only` (also for `withdrawn`), `a3.vulnerable.<applicability>`, `a3.withdrawn.{only,with_malicious}`, `a3.typosquat.listed`, `a3.nonexistent.{registry_not_found,published_before,evidence_not_checked,not_historical}`, `a3.cutoff.no_version_before_cutoff`, `a3.version.pin_not_in_registry`, `a3.evidence.incomplete`, `a3.registry.{security_hold,security_hold_not_historical}`, `a3.similarity.{edit_distance_1,no_list,not_checked}`, `a3.unknown.{unresolved,registry}`, `a3.evidence.not_used`, `a3.no_evidence`.
 - **Failure codes (stage `agent3`):** `a3.input.{project_mismatch,duplicate_registry_result,unknown_dependency,missing_registry_result}`, `a3.evidence.{store_missing,not_looked_up_by_agent2,store_mismatch,store_incomplete,unknown_id,wrong_package,after_cutoff}`.
-- **Limits:** npm ranges follow the documented node-semver grammar (`npm_semver.py`); tags, URLs and aliases stay `undetermined`. The resolved version ignores other constraints of the environment. A release missing from the registry list is `undetermined`. Similarity uses one edit only and is off in held-out runs before the popular lists' date (2026-11-01). Agent 2 sets `retrieved_after_cutoff` on every looked-up result when a cut-off is given.
+- **Limits:** declared npm ranges follow the documented node-semver grammar (pre-releases only through a comparator naming the same version); evidence ranges (both ecosystems) are ordered intervals that include pre-releases, as OSV orders versions by precedence (D-058, D-060; `versioning/evidence_ranges.py`); `*`, `""` and `latest` install the `latest` dist-tag even when it is a pre-release, and `x` is an ordinary range (D-058, D-060); under a cut-off a listed pre-release that `*` could install is `undetermined`; tags, URLs and aliases stay `undetermined`. The resolved version ignores other constraints of the environment. A release missing from the registry list is `undetermined`. Similarity uses one edit only and is off in held-out runs before the popular lists' date (2026-11-01). Agent 2 sets `retrieved_after_cutoff` on every looked-up result when a cut-off is given.
 
-### Agent 4: recommendation (draft)
+### Agent 4: recommendation (implemented, D-062, D-063)
 
-```
-input   { "dependency": ..., "findings": [...], "evidence": [Evidence],
-          "variant": "R0"|"LLM-U"|"LLM-G", "model": str|null, "seed": int|null }
+- **Code:** `src/multi_agentic_security/agents/agent4_recommendation/` (stage `agent4/0.1`): `packet.py` (inputs per variant), `rules.py` (R0), `llm.py` (provider-independent interface, recorded client, raw-response stores), `prompt.py`, `parse.py`, `recommend.py`. Output `contracts.pipeline.RecommendationResult`; the contract is unchanged.
+- **Entry point:** `recommend(extraction, registry, risk, *, evidence_store, variant="R0", llm=None, response_store=None, options=None, clock=...)`. One recommendation per Agent 1 dependency, in Agent 1's order. The cut-off is `registry.evidence_cutoff`. `RecommendationResult.stage_version` is `agent4/0.1+r0/0.1` or `agent4/0.1+a4-prompt/0.1`.
+- **Variants** (run parameter):
+  - `R0`: rules, backend `rules`.
+  - `LLM-G`: an LLM with the dependency's evidence records.
+  - `LLM-U`: an LLM with finding names only; no evidence records, IDs, versions from records or imitated names (D-062 b).
+  - R0 and LLM-G receive the records Agent 2 cited for the dependency, those Agent 3's findings cite and, for a typosquat finding, the imitated packages' own malicious and typosquat records (D-063), read again from the store and filtered again by the cut-off. Without a usable store, LLM-G gets finding names only.
+  - The variant is recorded in `prompt_version` (`a4-prompt/0.1+LLM-G`) and in the first reason `a4.input.packet`, which lists the evidence IDs given.
+- **R0 rules** (first match wins; D-062 c, D-063):
 
-output  { "contract_version": str, "dependency_id": str, "variant": str, "model": str|null,
-          "action": "remove"|"replace"|"upgrade"|"keep"|"abstain",
-          "target": { "package": PackageRef, "version": str|null }|null,   // replace, upgrade
-          "claims": [ { "type": "is_reported_malicious"|"is_compromised_version"|
-                                "is_typosquat_of"|"is_nonexistent"|"is_vulnerable"|
-                                "fixed_in"|"report_withdrawn"|"no_evidence_found",
-                        "subject": PackageRef, "object": str|null,
-                        "evidence_ids": [str] } ],
-          "explanation": str|null,                  // free text; never scored as fact
-          "raw_response_ref": str|null,
-          "failure": Failure|null }
-```
+  | Finding | Action | Claims |
+  |---|---|---|
+  | No package, no assessment | `abstain` | none |
+  | Typosquat, one imitated package | `replace` with it; `remove` when the imitated package is itself reported malicious or a listed typosquat | `is_typosquat_of` (+ `is_reported_malicious`) |
+  | Typosquat, several imitated packages | `remove` | `is_typosquat_of` each |
+  | Whole-package malicious | `remove` | `is_reported_malicious` |
+  | Security hold | `remove` | none |
+  | Nonexistent | `remove` | `is_nonexistent` |
+  | Compromised version / vulnerable (applicability not `undetermined`) | `upgrade` to the lowest registry release at or above a stated fix (`<X`) that is past every applying record and covered by no given record (final releases first, no local versions, yanked skipped without a cut-off); `abstain` when none or when the registry list is unknown | `is_compromised_version` / `is_vulnerable` (pinned version when covered), `fixed_in` (object: the recommended version) |
+  | Same families, only `undetermined` | `investigate` | none |
+  | Name similar to a popular package | `investigate` | none |
+  | Unknown | `abstain` | none |
+  | Withdrawn report only | `keep` | `report_withdrawn` |
+  | No evidence | `keep` | `no_evidence_found` only when the store is usable and no risk record names the package |
 
-Codes: `llm_error`, `llm_timeout`, `schema_violation`, `refusal`. Only `claims` are evaluated for support; `explanation` is for the reader.
+- **LLM back end:**
+  - `LLMClient.generate(LLMRequest) -> LLMResponse` is the only interface (D-022, D-038). Provider adapters do not exist yet; they wait for the owner's choice of providers and pinned models.
+  - `RecordedLLMClient` replays responses by request hash or in order.
+  - The prompt is built only from structured fields inside one JSON object marked as data. The original declaration, file contents, source paths and Agent 3's explanation texts are never sent.
+  - Answers are parsed strictly into the contract.
+  - Retries are bounded and recorded (`LLMOptions`: schema repairs and transport retries, default 2, maximum 5). Refusals are not retried.
+  - Raw responses go to a `ResponseStore` (`FileResponseStore`: one file per response named by SHA-256, never overwritten); `raw_response_ref` is `a4raw:sha256:<hex>`.
+  - API key names are in `.env.example`.
+- **Failures are states:** `llm_error`, `llm_timeout`, `schema_violation` (after the bound) and `refusal` give `abstain` with a `Failure` `a4.llm.<status>`. Client exceptions are recorded by type and an optional validated code only, never by message (D-063). A client answer of the wrong type and a response-store failure are `llm_error`. Without a package or an assessment the model is not called.
+- **Citations:** R0 cites only IDs it was given. LLM citations of IDs not given are kept and flagged (`a4.llm.cited_not_given`), so RQ1a can measure them; Agent 5 and the scorer judge them.
+- **Reason rule IDs:**
+  - `a4.input.packet`;
+  - R0: `a4.r0.{no_package,no_assessment,typosquat.replace,typosquat.target_flagged_remove,typosquat.several_targets_remove,malicious.remove,security_hold.remove,nonexistent.remove,version.upgrade,version.no_target,version.undetermined_investigate,similar_name.investigate,unknown.abstain,withdrawn.keep,no_evidence.keep,no_evidence.keep_other_versions,no_evidence.keep_unverified,<finding>.evidence_not_given,no_rule}`;
+  - LLM: `a4.llm.{attempt.<status>,<status>,no_package,no_assessment,cited_not_given,recommendation}`.
+- **Failure codes (stage `agent4`):** `a4.input.{project_mismatch,duplicate_registry_result,duplicate_assessment,unknown_dependency,missing_registry_result,missing_assessment}`, `a4.evidence.{store_missing,not_looked_up_by_agent2,store_mismatch,unknown_id,after_cutoff}`, `a4.llm.{schema_violation,llm_error,llm_timeout,refusal}`.
+- **Limits:**
+  - R0 never recommends a downgrade, because no source names an earlier safe version.
+  - Typosquat target names in the evidence are not validated as package names (D-063 k).
+  - The "replace" branch of the nonexistent rule is inactive (no approved pair source).
+  - Upgrade targets ignore other constraints of the project; the semver distance and constraint compatibility are reported by Agent 5 (D-036).
+  - Targets in held-out runs need recorded registry lookups (`RUN_LOG.md` PLAN-001).
 
-Variants (clarified in the review): `R0` and `LLM-G` receive `evidence`. `LLM-U` receives an empty `evidence` list and the finding names only; whether it should receive even the finding names is an open choice.
+### Agent 5: independent verification (implemented, D-059 to D-061)
 
-### Agent 5: independent verification (draft)
-
-```
-input   { "dependency": ..., "recommendation": ...Agent 4 output...,
-          "evidence_cutoff": str, "registry_mode": "live"|"snapshot"|"off" }
-
-output  { "contract_version": str, "dependency_id": str,
-          "verdict": "accept"|"reject"|"abstain",
-          "checks": [ { "check": "schema"|"claims_supported"|"target_exists"|
-                                 "target_not_malicious"|"target_not_typosquat"|
-                                 "target_version_not_vulnerable"|"action_consistent",
-                        "result": "pass"|"fail"|"not_run"|"not_applicable",
-                        "evidence_ids": [str], "detail": str|null } ],
-          "failures": [Failure] }
-```
-
-Rules: any `fail` gives `reject`; any `not_run` on a required check gives `abstain`; `accept` requires every required check to `pass` or be `not_applicable`. The four `target_*` checks are `not_applicable` when the action has no target (`remove`, `keep`, `abstain`). Agent 5 reads the recommendation's structured fields only and re-queries the evidence store for the target.
+- **Code:** `src/multi_agentic_security/agents/agent5_verification/` (stage `agent5/0.1`): `verify.py` (checks and verdict), `versions.py` (Agent 5's own version logic). Output `contracts.pipeline.VerificationResult`; the contract is unchanged.
+- **Entry point:** `verify_recommendations(extraction, registry, recommendations, *, evidence_store, target_client=None, enabled_checks=None, clock=...)`. `recommendations` is a `RecommendationResult` or a mapping of the same shape; each recommendation is validated on its own. `target_client` is a registry client used only for recommended targets and for claim subjects other than the dependency (`SnapshotRegistryClient` in experiments). The cut-off is `registry.evidence_cutoff`.
+- **Isolation:** no import from Agent 3 or Agent 4, no LLM, no network library (AST test); only structured fields are read (never `rationale`); Agent 3's findings are not an input.
+- **Checks** (one `CheckResult` each, in `CheckName` order): `schema`, `dependency_identity`, `action_allowed`, `claims_supported`, `target_exists`, `target_not_malicious`, `target_not_typosquat`, `target_version_not_vulnerable`, `replacement_matches_reference`, `action_consistent`. Target checks are `not_applicable` without a target; `replacement_matches_reference` applies to `replace` of a dependency that a typosquat record lists; `action_consistent` applies to `keep`, `upgrade` and `downgrade`. Rules in D-059 (b).
+- **Verdict:** `verdict_from_checks` (any `fail` -> `reject`; any required `not_run` -> `abstain`; otherwise `accept`). Anything that cannot be checked is `not_run`, never `pass`.
+- **Cut-off:** evidence published on or after it and undated evidence are not used (citing it fails the claim); a live client is refused; target and dependency versions count only when uploaded before the cut-off (Agent 5 filters again); a `not_found` or security hold recorded after the cut-off, a package without a release before the cut-off, and an unversioned target whose newer reported release may have been the install then all leave the check `not_run` (D-060).
+- **Ablation:** every check except `schema` can be switched off (`enabled_checks`); it is then `not_run` with `required=False`.
+- **Reason rule IDs:** `a5.check.<check>.{pass,fail,not_run,not_applicable,switched_off}` (inputs and evidence IDs per check; `action_allowed` reports `semver_distance` and `constraint_admits_target`, D-036) and `a5.verdict.{accept,reject,abstain}`.
+- **Failure codes (stage `agent5`):** `a5.input.{project_mismatch,invalid_recommendations,unknown_dependency,duplicate_recommendation,missing_registry_result,missing_recommendation}`, `a5.evidence.{store_missing,store_incomplete,store_differs_from_agent2}`, `a5.registry.{no_client,live_with_cutoff,client_error}`.
+- **Limits:** Agent 5 knows only what the evidence store and the registry know at the cut-off; it cannot detect an unreported malicious package, and a report withdrawn after the cut-off already looks withdrawn in a held-out run. Releases inside an affected range that were deleted later are not visible. Under a cut-off a stated target version that does not exist is `not_run`, never `reject` (the snapshot cannot show that it was absent then). Name similarity and the target's own dependencies are not checked. Version resolution assumes a fresh install with the default resolver.
 
 The evaluation scorer is not an agent and has no contract here; see `SYSTEM_ARCHITECTURE.md` §4.

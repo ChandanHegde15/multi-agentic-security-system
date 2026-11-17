@@ -35,6 +35,8 @@ retrieval time, and a release yanked later was installable at the cut-off (D-057
 
 from __future__ import annotations
 
+import dataclasses
+
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -45,7 +47,7 @@ from packaging.version import InvalidVersion, Version
 from multi_agentic_security.contracts.evidence import EvidenceRecord, VersionScope
 from multi_agentic_security.contracts.pipeline import DependencyRecord, RegistryVerification
 
-from . import npm_semver
+from multi_agentic_security.versioning import evidence_ranges, npm_semver
 
 APPLICABILITY_ORDER = ("all_versions", "affected", "likely_affected", "possible", "undetermined",
                        "allowed_not_resolved", "removed_from_registry", "not_affected")
@@ -78,6 +80,9 @@ class Declared:
     registry_versions: Optional[tuple[str, ...]] = None   # every version the registry reported (after the cut-off filter)
     allow_spec: Optional[str] = None    # the constraint as read (PEP 440 set or npm range); None when not readable
     cutoff_set: bool = False
+    resolved_if_yanked: Optional[str] = None  # under a cut-off: the choice if today's yanked list applied (D-058)
+    npm_latest: Optional[str] = None    # npm dist-tags.latest, when known
+    latest_tag_rule: bool = False       # npm "*", "" or "latest": the latest tag is installed (D-058, D-060)
 
     def allows(self, version: str) -> Optional[bool]:
         """Whether the declared constraint itself admits ``version`` (None: cannot be decided)."""
@@ -86,6 +91,14 @@ class Declared:
         if self.kind not in ("constraint", "any") or self.allow_spec is None:
             return None
         if self.ecosystem == "npm":
+            if self.latest_tag_rule:
+                # npm installs dist-tags.latest for "*", "" and "latest" even when it is a pre-release
+                # (D-058); other pre-releases are not chosen, so they are left undecided. "x" is an
+                # ordinary range (D-060).
+                pv = npm_semver.parse_version(version)
+                if pv is not None and pv.prerelease:
+                    # A known final 'latest' tag excludes every other pre-release (D-061).
+                    return (version == self.npm_latest) if self.npm_latest is not None else None
             return npm_semver.satisfies(version, self.allow_spec)
         p = _pv(version)
         if p is None:
@@ -117,8 +130,7 @@ def declared_version(dep: DependencyRecord, reg: Optional[RegistryVerification],
                      cutoff_set: bool = False) -> Declared:
     d = _declared(dep, reg, cutoff_set)
     versions = tuple(reg.versions) if reg is not None and reg.status == "found" and reg.versions is not None else None
-    return Declared(d.kind, d.ecosystem, d.exact, d.candidates, d.resolved, d.note, d.spec, versions,
-                    d.allow_spec, cutoff_set)
+    return dataclasses.replace(d, registry_versions=versions, cutoff_set=cutoff_set)
 
 
 def _resolve_npm(candidates: list[str], latest: Optional[str]) -> Optional[str]:
@@ -135,8 +147,8 @@ def _declared(dep: DependencyRecord, reg: Optional[RegistryVerification], cutoff
     raw = (dep.version_constraint_normalized or "").strip()
     versions = list(reg.versions) if reg is not None and reg.status == "found" and reg.versions is not None else None
     # Yanked state is from retrieval time; under a cut-off it says nothing about the cut-off (D-057).
-    yanked = (set((reg.metadata or {}).get("yanked_versions") or []) if reg is not None and not cutoff_set
-              else set())
+    yanked_now = set((reg.metadata or {}).get("yanked_versions") or []) if reg is not None else set()
+    yanked = yanked_now if not cutoff_set else set()
     if eco == "pypi":
         if raw.startswith("===") and "," not in raw:
             return Declared("exact", eco, exact=raw[3:].strip(), spec=raw)
@@ -154,23 +166,32 @@ def _declared(dep: DependencyRecord, reg: Optional[RegistryVerification], cutoff
             return Declared("constraint" if raw else "any", eco, spec=raw or None, allow_spec=str(spec),
                             note="no registry version list, so the allowed versions are unknown")
         allowed = [v for v in versions if _pv(v) is not None and spec.contains(_pv(v), prereleases=True)]
-        return Declared("constraint" if raw else "any", eco, candidates=tuple(allowed),
-                        resolved=_resolve_pypi(allowed, yanked, spec), spec=raw or None, allow_spec=str(spec))
+        resolved = _resolve_pypi(allowed, yanked, spec)
+        # Under a cut-off the yanked list is today's; a yank before the cut-off would change the
+        # choice. Both choices are kept, and applicability is undetermined when they disagree (D-058).
+        alt = _resolve_pypi(allowed, yanked_now, spec) if cutoff_set and yanked_now else None
+        return Declared("constraint" if raw else "any", eco, candidates=tuple(allowed), resolved=resolved,
+                        spec=raw or None, allow_spec=str(spec), resolved_if_yanked=alt if alt != resolved else None)
     if eco == "npm":
         if _NPM_EXACT.match(raw):
             return Declared("exact", eco, exact=raw, spec=raw)
         latest = reg.latest_version if reg is not None and reg.status == "found" else None
         rng = "*" if raw.lower() in _NPM_LATEST else raw
+        star = raw.lower() in ("", "*", "latest")
         if npm_semver.satisfies("0.0.0", rng) is None:
             return Declared("unknown", eco, spec=raw or None,
                             note="npm specifier is not a version range (tag, URL or alias); installed version undetermined")
         kind = "any" if rng == "*" else "constraint"
         if versions is None:
-            return Declared(kind, eco, spec=raw or None, allow_spec=rng,
+            return Declared(kind, eco, spec=raw or None, allow_spec=rng, npm_latest=latest, latest_tag_rule=star,
                             note="no registry version list, so the allowed versions are unknown")
         allowed = [v for v in versions if npm_semver.satisfies(v, rng)]
+        latest_pv = npm_semver.parse_version(latest) if latest is not None else None
+        if star and latest_pv is not None and latest_pv.prerelease and latest in versions \
+                and latest not in allowed:
+            allowed.append(latest)   # npm picks a pre-release 'latest' tag for "*" (D-058)
         return Declared(kind, eco, candidates=tuple(allowed), resolved=_resolve_npm(allowed, latest), spec=raw or None,
-                        allow_spec=rng)
+                        allow_spec=rng, npm_latest=latest, latest_tag_rule=star)
     return Declared("unknown", eco, note="no ecosystem")
 
 
@@ -186,12 +207,8 @@ def _in_range(eco: str, version: str, rng: str) -> Optional[bool]:
         return npm_semver.satisfies_evidence_range(version, rng)
     if eco != "pypi":
         return None
-    p = _pv(version)
-    try:
-        spec = SpecifierSet(rng)
-    except InvalidSpecifier:
-        return None
-    return None if p is None else spec.contains(p, prereleases=True)
+    # An ordered interval, not a PEP 440 specifier: "<2.0" covers 2.0rc1 in OSV order (D-060).
+    return evidence_ranges.in_range("pypi", version, rng)
 
 
 def applicability(rec: EvidenceRecord, d: Declared) -> str:
@@ -209,6 +226,9 @@ def applicability(rec: EvidenceRecord, d: Declared) -> str:
         return "undetermined" if c is None else ("affected" if c else "not_affected")
     if rec.version_scope is VersionScope.LISTED and d.allows(rec.version) is False:
         return "not_affected"            # the constraint itself excludes the reported version (D-057)
+    if rec.version_scope is VersionScope.LISTED and d.allows(rec.version) is None and \
+            d.registry_versions is not None and any(_same(eco, v, rec.version) for v in d.registry_versions):
+        return "undetermined"            # listed and installable, but whether it is chosen is unknown (D-060)
     if d.candidates is not None and not d.candidates:
         return "undetermined"            # no allowed version known (none listed, or none before the cut-off)
     if rec.version_scope is VersionScope.LISTED and d.registry_versions is not None and not any(
@@ -220,6 +240,8 @@ def applicability(rec: EvidenceRecord, d: Declared) -> str:
             return "undetermined"
         return "removed_from_registry"
     resolved_covered = covers(d.resolved) if d.resolved is not None else None
+    if d.resolved_if_yanked is not None and covers(d.resolved_if_yanked) != resolved_covered:
+        return "undetermined"            # the answer depends on when releases were yanked (D-058)
     if resolved_covered:
         return "likely_affected"
     if d.candidates is not None:

@@ -89,8 +89,12 @@ def _family_finding(kind: str, views: list[RecordView], d: Declared, rule: str, 
                             f"{len(older)} {text} record(s) cover other versions that the constraint still allows "
                             "(older, pre-release or yanked, or for npm newer than the 'latest' tag), but not the version "
                             f"that would be installed ({d.resolved}). Pinning or a lock file would prevent an affected "
-                            "version from being installed.", ids,
-                            declared=d.to_dict(), older_versions_affected=len(older))
+                            "version from being installed."
+                            + (f" {len(removed)} further record(s) name release(s) that are no longer in the "
+                               "registry; an environment or lock file created earlier may still contain them."
+                               if removed else ""), ids,
+                            declared=d.to_dict(), older_versions_affected=len(older),
+                            removed_releases_reported=len(removed))
         if removed:
             return None, _r(f"{rule}.reported_release_removed", "no_finding",
                             f"{len(removed)} {text} record(s) name release(s) that the constraint allows but that are no "
@@ -263,7 +267,6 @@ def _assess_one(dep: DependencyRecord, reg: Optional[RegistryVerification], stor
         # says nothing about a dependency on 19.x.
         wviews = _views(withdrawn, d)
         wapply = [v for v in wviews if v.applicability in APPLIES]
-        all_ids = sorted(r.evidence_id for r in withdrawn)
         if wapply:
             ids = sorted(v.record.evidence_id for v in wapply)
             findings.append(Finding(finding="withdrawn_only", evidence_ids=ids,
@@ -274,10 +277,9 @@ def _assess_one(dep: DependencyRecord, reg: Optional[RegistryVerification], stor
                                                 f"version ({len(ids)}). A withdrawn report is not a malicious finding.",
                                                 ids)]))
         else:
-            reasons.append(_r("a3.withdrawn.other_versions_only", "no_finding",
-                              f"{len(all_ids)} withdrawn (retracted) report(s) name this package, but none covers the "
-                              "declared version. A withdrawn report is not a malicious finding in any case.", all_ids,
-                              declared=d.to_dict()))
+            # Same reason rules and texts as the other families (D-058: the text must match the rule).
+            _, why = _family_finding("withdrawn_only", wviews, d, "a3.withdrawn", "withdrawn (retracted) malicious")
+            reasons.append(why)
     elif withdrawn:
         reasons.append(_r("a3.withdrawn.with_malicious", "context",
                           "Withdrawn reports exist next to malicious reports; the malicious reports are judged on "
@@ -360,8 +362,11 @@ def _assess_one(dep: DependencyRecord, reg: Optional[RegistryVerification], stor
                                                 retrieved_at=retrieved)]))
     elif status == "security_placeholder":
         if after_cutoff:
-            reasons.append(_r("a3.registry.security_hold_not_historical", "context",
-                              "npm shows a security holding package now, but the data was retrieved after the cut-off."))
+            # Like a not_found retrieved after the cut-off (D-058): the state at the cut-off is unknown.
+            findings.append(Finding(finding="unknown", detail={"why": "registry status is from after the cut-off"},
+                                    reasons=[_r("a3.registry.security_hold_not_historical", "unknown",
+                                                "npm shows a security holding package now, but the data was "
+                                                "retrieved after the cut-off, so it cannot show the state then.")]))
         else:
             findings.append(Finding(finding="registry_security_hold",
                                     detail={k: (reg.metadata or {}).get(k) for k in
@@ -420,7 +425,8 @@ def _assess_one(dep: DependencyRecord, reg: Optional[RegistryVerification], stor
     # of the cut-off (D-056 b, D-057); it is kept next to an 'unknown' registry status (mode off, lookup
     # error), where the evidence was still searched and found nothing.
     blocking = {"nonexistent", "registry_security_hold"}
-    cutoff_unknown = any(r.rule_id in ("a3.cutoff.no_version_before_cutoff", "a3.nonexistent.not_historical")
+    cutoff_unknown = any(r.rule_id in ("a3.cutoff.no_version_before_cutoff", "a3.nonexistent.not_historical",
+                                       "a3.registry.security_hold_not_historical")
                          for f in findings for r in f.reasons)
     if complete and not cutoff_unknown and not any(f.finding in evidence_backed | blocking for f in findings):
         findings.append(Finding(finding="no_evidence",
