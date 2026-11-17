@@ -356,6 +356,11 @@ def test_unpinned_package_with_only_old_advisories_gets_no_vulnerable_finding():
 
 
 def test_possible_when_installed_version_is_unknown():
+    # All allowed releases yanked: pip installs the highest yanked one (PEP 592, D-057).
     d = declared_version(dep_for("a\n"), reg_found(["1.0", "1.2.0"], yanked=["1.0", "1.2.0"]))
-    assert d.resolved is None
-    assert applicability(rec(F.MALICIOUS, "pypi", "a", S.LISTED, version="1.2.0"), d) == "possible"
+    assert d.resolved == "1.2.0"
+    assert applicability(rec(F.MALICIOUS, "pypi", "a", S.LISTED, version="1.2.0"), d) == "likely_affected"
+    # 'possible' remains for an allowed set whose installed version is unknown.
+    from multi_agentic_security.agents.agent3_risk.versions import Declared
+    d2 = Declared("any", "pypi", candidates=("1.0", "1.2.0"), resolved=None, allow_spec="")
+    assert applicability(rec(F.MALICIOUS, "pypi", "a", S.LISTED, version="1.2.0"), d2) == "possible"

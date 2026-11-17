@@ -11,7 +11,8 @@ v2 findings and their rules (rule IDs ``a3.*``):
 * ``compromised_version`` - malicious reports for listed versions or ranges that
   cover (or may cover) the declared version. Reports naming only other versions
   give no finding (popular packages with compromised releases stay usable).
-* ``withdrawn_only``      - only withdrawn (retracted) reports; never malicious.
+* ``withdrawn_only``      - only withdrawn (retracted) reports, covering the declared
+  version; never malicious.
 * ``vulnerable``          - advisories whose affected range covers (or may cover)
   the declared version, with the fixed boundaries the advisories state.
 * ``typosquat_listed``    - a typosquat list names this package as imitating
@@ -82,12 +83,21 @@ def _family_finding(kind: str, views: list[RecordView], d: Declared, rule: str, 
     if not applying:
         ids = sorted(v.record.evidence_id for v in views)
         older = sorted(v.record.evidence_id for v in views if v.applicability == "allowed_not_resolved")
+        removed = sorted(v.record.evidence_id for v in views if v.applicability == "removed_from_registry")
         if older:
             return None, _r(f"{rule}.installed_version_not_affected", "no_finding",
                             f"{len(older)} {text} record(s) cover other versions that the constraint still allows "
-                            f"(older, pre-release or yanked), but not the version that would be installed ({d.resolved}). "
-                            "Pinning or a lock file would prevent an affected version from being installed.", ids,
+                            "(older, pre-release or yanked, or for npm newer than the 'latest' tag), but not the version "
+                            f"that would be installed ({d.resolved}). Pinning or a lock file would prevent an affected "
+                            "version from being installed.", ids,
                             declared=d.to_dict(), older_versions_affected=len(older))
+        if removed:
+            return None, _r(f"{rule}.reported_release_removed", "no_finding",
+                            f"{len(removed)} {text} record(s) name release(s) that the constraint allows but that are no "
+                            "longer in the registry, so a new install cannot receive them"
+                            + (f" (it would install {d.resolved})" if d.resolved else "") + ". An environment or lock "
+                            "file created while they were available may still contain them; check the installed "
+                            "version.", ids, declared=d.to_dict(), removed_releases_reported=len(removed))
         return None, _r(f"{rule}.other_versions_only", "no_finding",
                         f"{len(ids)} {text} record(s) name this package, but none covers the declared version "
                         f"(declared {d.exact or d.spec or 'without a constraint'}"
@@ -173,7 +183,8 @@ def assess(extraction: ExtractionResult, registry: RegistryResult, *, evidence_s
     for (dep, reg), v1 in zip(pairs, baseline):
         findings, reasons, reference = _assess_one(dep, reg, evidence_store if store_ok else None, popular,
                                                   cutoff_date, failures, store_ok, complete,
-                                                  evidence_store.missing_tables if evidence_store is not None else [])
+                                                  evidence_store.missing_tables if evidence_store is not None else [],
+                                                  cutoff)
         reasons.insert(0, _r("a3.v1.baseline", v1.risk_level,
                              f"Frozen v1 baseline: score {v1.risk_score}, level {v1.risk_level} (registry status for v1: "
                              f"{v1.registry_status_v1}). Shown for comparison only.",
@@ -187,7 +198,7 @@ def assess(extraction: ExtractionResult, registry: RegistryResult, *, evidence_s
 
 def _assess_one(dep: DependencyRecord, reg: Optional[RegistryVerification], store: Optional[EvidenceStore],
                 popular: dict[str, PopularIndex], cutoff_date, failures: list[Failure], store_ok: bool,
-                complete: bool, missing_tables: list[str]):
+                complete: bool, missing_tables: list[str], cutoff: Optional[datetime] = None):
     findings: list[Finding] = []
     reasons: list[Reason] = []
     reference: Optional[PackageRef] = None
@@ -202,13 +213,14 @@ def _assess_one(dep: DependencyRecord, reg: Optional[RegistryVerification], stor
     if reg is None:
         failures.append(Failure(stage="agent3", code="a3.input.missing_registry_result",
                                 detail="no registry result for this dependency", dependency_id=dep.dependency_id))
-    d = declared_version(dep, reg)
+    d = declared_version(dep, reg, cutoff_set=cutoff_date is not None)
     if d.kind == "exact" and d.registry_versions is not None and not any(
             _same_version(eco, d.exact, v) for v in d.registry_versions):
         reasons.append(_r("a3.version.pin_not_in_registry", "context",
                           f"The pinned version {d.exact} is not in the registry's version list"
-                          + (" before the cut-off" if cutoff_date else "") + "; it may have been deleted or never "
-                          "published.", pinned=d.exact))
+                          + (" before the cut-off" if cutoff_date else "") + "; it may have been deleted"
+                          + (", uploaded after the cut-off" if cutoff_date else "") + " or never published.",
+                          pinned=d.exact))
 
     # ---- evidence by family
     records: list[EvidenceRecord] = []
@@ -247,12 +259,25 @@ def _assess_one(dep: DependencyRecord, reg: Optional[RegistryVerification], stor
 
     withdrawn = by_family.get("withdrawn", [])
     if withdrawn and not malicious:
-        ids = sorted(r.evidence_id for r in withdrawn)
-        findings.append(Finding(finding="withdrawn_only", evidence_ids=ids,
-                                detail={"records": [RecordView(r, applicability(r, d)).to_dict() for r in withdrawn]},
-                                reasons=[_r("a3.withdrawn.only", "withdrawn_only",
-                                            f"Only withdrawn (retracted) malicious reports name this package ({len(ids)}). "
-                                            "A withdrawn report is not a malicious finding.", ids)]))
+        # Version-aware like the other families (D-057): a retracted report about version 1.0.0
+        # says nothing about a dependency on 19.x.
+        wviews = _views(withdrawn, d)
+        wapply = [v for v in wviews if v.applicability in APPLIES]
+        all_ids = sorted(r.evidence_id for r in withdrawn)
+        if wapply:
+            ids = sorted(v.record.evidence_id for v in wapply)
+            findings.append(Finding(finding="withdrawn_only", evidence_ids=ids,
+                                    detail={"applicability": strongest(v.applicability for v in wapply),
+                                            "records": [v.to_dict() for v in wapply]},
+                                    reasons=[_r("a3.withdrawn.only", "withdrawn_only",
+                                                f"Only withdrawn (retracted) malicious reports name this package and "
+                                                f"version ({len(ids)}). A withdrawn report is not a malicious finding.",
+                                                ids)]))
+        else:
+            reasons.append(_r("a3.withdrawn.other_versions_only", "no_finding",
+                              f"{len(all_ids)} withdrawn (retracted) report(s) name this package, but none covers the "
+                              "declared version. A withdrawn report is not a malicious finding in any case.", all_ids,
+                              declared=d.to_dict()))
     elif withdrawn:
         reasons.append(_r("a3.withdrawn.with_malicious", "context",
                           "Withdrawn reports exist next to malicious reports; the malicious reports are judged on "
@@ -291,9 +316,26 @@ def _assess_one(dep: DependencyRecord, reg: Optional[RegistryVerification], stor
 
     # ---- registry facts
     status = reg.status if reg is not None else None
-    after_cutoff = reg is not None and reg.retrieved_after_cutoff is True
+    after_cutoff = False
+    if reg is not None and reg.retrieved_after_cutoff is not None:
+        after_cutoff = reg.retrieved_after_cutoff is True
+    elif reg is not None and cutoff is not None:
+        # Flag missing under a cut-off (e.g. older input): derive it, and fail closed without a time (D-057).
+        after_cutoff = reg.retrieved_at is None or reg.retrieved_at >= cutoff
+    retrieved = reg.retrieved_at.isoformat() if reg is not None and reg.retrieved_at is not None else None
+    target_ids: list[str] = []
+    if status == "not_found" and store is not None and not records:
+        # Agent 2 cites only records about this name; a typosquat record naming it as the TARGET
+        # also shows the name was published (review 2, finding 9).
+        q = store.query(eco, name, cutoff=cutoff_date)
+        target_ids = sorted(m.evidence_id for m in q.matches if m.role != "name")
     if status == "not_found":
-        if records:
+        if target_ids:
+            reasons.append(_r("a3.nonexistent.named_as_target", "not_nonexistent",
+                              "The registry has no such package now, but typosquat records name it as the imitated "
+                              "package: it was published and later removed, which is not the same as never existing.",
+                              target_ids))
+        elif records:
             reasons.append(_r("a3.nonexistent.published_before", "not_nonexistent",
                               "The registry has no such package now, but evidence records name it "
                               f"({', '.join(sorted({r.family.value for r in records}))}): it was published and later "
@@ -311,11 +353,11 @@ def _assess_one(dep: DependencyRecord, reg: Optional[RegistryVerification], stor
                                                 "The registry has no such package now, but the data was retrieved "
                                                 "after the cut-off, so it cannot show whether the package existed then.")]))
         else:
-            findings.append(Finding(finding="nonexistent", detail={"registry_retrieved_at": reg.retrieved_at.isoformat()},
+            findings.append(Finding(finding="nonexistent", detail={"registry_retrieved_at": retrieved},
                                     reasons=[_r("a3.nonexistent.registry_not_found", "nonexistent",
                                                 f"The {eco} registry has no package with this name (retrieved "
-                                                f"{reg.retrieved_at.isoformat()}) and no malicious report names it.",
-                                                retrieved_at=reg.retrieved_at.isoformat())]))
+                                                f"{retrieved or 'at an unrecorded time'}) and no evidence record names it.",
+                                                retrieved_at=retrieved)]))
     elif status == "security_placeholder":
         if after_cutoff:
             reasons.append(_r("a3.registry.security_hold_not_historical", "context",
@@ -330,7 +372,7 @@ def _assess_one(dep: DependencyRecord, reg: Optional[RegistryVerification], stor
                                                 removed_versions=(reg.metadata or {}).get("removed_versions"))]))
     elif status == "found" and cutoff_date is not None and reg.versions == []:
         findings.append(Finding(finding="unknown", detail={"why": "no version uploaded before the cut-off",
-                                                           "registry_retrieved_at": reg.retrieved_at.isoformat()},
+                                                           "registry_retrieved_at": retrieved},
                                 reasons=[_r("a3.cutoff.no_version_before_cutoff", "unknown",
                                             "The package exists in the registry now, but none of its listed versions was "
                                             "uploaded before the cut-off: it may not have existed then (for example a name "
@@ -361,8 +403,9 @@ def _assess_one(dep: DependencyRecord, reg: Optional[RegistryVerification], stor
                           "usable."))
     elif not len(idx):
         reasons.append(_r("a3.similarity.no_list", "not_checked",
-                          "No popular-package list is available for this ecosystem at the cut-off, so name similarity "
-                          "was not checked."))
+                          "No popular-package list record is available for this ecosystem ("
+                          + ("none is known before the cut-off" if cutoff_date else "the list table holds no records")
+                          + "), so name similarity was not checked."))
 
     if not store_ok:
         reasons.append(_r("a3.evidence.not_used", "not_checked",
@@ -373,7 +416,13 @@ def _assess_one(dep: DependencyRecord, reg: Optional[RegistryVerification], stor
         reasons.append(_r("a3.evidence.incomplete", "partial",
                           "Some evidence tables were not loaded (" + ", ".join(missing_tables or ["unknown"]) + "), so the "
                           "absence of a finding is not reported as no_evidence.", missing_tables=missing_tables))
-    if complete and not any(f.finding in evidence_backed for f in findings):
+    # no_evidence is not added when the package's existence is itself the finding or is unknown because
+    # of the cut-off (D-056 b, D-057); it is kept next to an 'unknown' registry status (mode off, lookup
+    # error), where the evidence was still searched and found nothing.
+    blocking = {"nonexistent", "registry_security_hold"}
+    cutoff_unknown = any(r.rule_id in ("a3.cutoff.no_version_before_cutoff", "a3.nonexistent.not_historical")
+                         for f in findings for r in f.reasons)
+    if complete and not cutoff_unknown and not any(f.finding in evidence_backed | blocking for f in findings):
         findings.append(Finding(finding="no_evidence",
                                 reasons=[_r("a3.no_evidence", "no_evidence",
                                             "No evidence record applies to this package and version. This is not a "

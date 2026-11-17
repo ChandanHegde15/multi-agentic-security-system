@@ -68,8 +68,10 @@ def _xrange(op: str, nums, pre) -> Optional[list[Comparator]]:
     else:
         v = _v(maj, mi, pa, pre)
         return [({"": "=", "=": "="}.get(op, op), v)]
+    # node-semver adds the "-0" pre-release only to "<" bounds: ">1.2" is ">=1.3.0", so 1.3.0-beta stays out (D-057).
+    nxt = _v(hi.major, hi.minor, hi.patch)
     return {"": [(">=", lo), ("<", hi)], "=": [(">=", lo), ("<", hi)], ">=": [(">=", lo)], "<": [("<", lo)],
-            ">": [(">=", hi)], "<=": [("<", hi)]}.get(op)
+            ">": [(">=", nxt)], "<=": [("<", hi)]}.get(op)
 
 
 def _tilde(nums, pre) -> list[Comparator]:
@@ -143,6 +145,14 @@ def _comparator_set(text: str) -> Optional[list[Comparator]]:
             return None
         out += part
     return out
+
+
+def satisfies_evidence_range(version: str, rng: str) -> Optional[bool]:
+    """An affected range from an evidence record. The adapters write OSV intervals in the comma
+    form (``>=1.0.0,<1.2.3``, D-046), which means AND; read it as the space-separated npm form."""
+    if not isinstance(rng, str):
+        return None
+    return satisfies(version, " || ".join(" ".join(p.strip() for p in part.split(",")) for part in rng.split("||")))
 
 
 def _ok(v: Version, op: str, c: Version) -> bool:

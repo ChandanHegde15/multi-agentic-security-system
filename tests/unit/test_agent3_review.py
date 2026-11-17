@@ -116,9 +116,12 @@ def test_h2_package_without_version_before_cutoff_is_unknown():
 # --------------------------------------------------------------------------- M1, M2
 
 def test_m1_reported_release_missing_from_registry_is_undetermined():
+    # Under a cut-off the deleted release may have been installable then (M1). Without a cut-off
+    # it is reason-only since D-057 (test_agent3_review2.py).
     s = store_of(rec(F.MALICIOUS, "pypi", "ultra", S.LISTED, version="8.3.41"))
     _, rr = run([("requirements.txt", "ultra>=8.3\n")], s, s,
-                {("pypi", "ultra"): found("ultra", ["8.3.0", "8.3.40", "8.3.42"])})
+                {("pypi", "ultra"): found("ultra", ["8.3.0", "8.3.40", "8.3.42"])},
+                cutoff=datetime(2025, 6, 1, tzinfo=timezone.utc))
     f = next(f for f in rr.assessments[0].findings if f.finding == "compromised_version")
     assert f.detail["applicability"] == "undetermined"
 
@@ -133,10 +136,13 @@ def test_m2_empty_version_list_is_undetermined():
 # --------------------------------------------------------------------------- M3
 
 def test_m3_possible_text_does_not_claim_the_installed_version():
-    s = store_of(rec(F.MALICIOUS, "pypi", "yk", S.LISTED, version="1.2.0"))
-    _, rr = run([("requirements.txt", "yk\n")], s, s,
-                {("pypi", "yk"): found("yk", ["1.0", "1.2.0"], yanked=["1.0", "1.2.0"])})
-    f = next(f for f in rr.assessments[0].findings if f.finding == "compromised_version")
+    # Since D-057 an all-yanked set resolves to the highest yanked release (PEP 592), so 'possible'
+    # needs an unknown resolved version; the wording rule is checked on the finding text directly.
+    from multi_agentic_security.agents.agent3_risk.assess import _family_finding
+    from multi_agentic_security.agents.agent3_risk.versions import Declared, RecordView
+    d = Declared("any", "pypi", candidates=("1.0", "1.2.0"), resolved=None, allow_spec="")
+    r = rec(F.MALICIOUS, "pypi", "yk", S.LISTED, version="1.2.0")
+    f, _ = _family_finding("compromised_version", [RecordView(r, "possible")], d, "a3.malicious.version", "x")
     assert f.detail["applicability"] == "possible"
     assert "unknown" in f.reasons[0].explanation and "not the one that would be installed" not in f.reasons[0].explanation
 
