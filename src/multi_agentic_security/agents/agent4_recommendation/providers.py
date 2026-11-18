@@ -1,6 +1,6 @@
-"""Hosted LLM adapters for Agent 4: Groq and Google Gemini (D-064).
+"""Hosted LLM adapter for Agent 4: Groq (D-064, D-068).
 
-This is the only Agent 4 module that touches the network. Each adapter implements
+This is the only Agent 4 module that touches the network. The adapter implements
 ``LLMClient`` (``llm.py``):
 
 * the API key is read from the environment **at each call** and sent only in a request
@@ -12,16 +12,16 @@ This is the only Agent 4 module that touches the network. Each adapter implement
   with a short machine code only (``http_429``, ``timeout``, ``invalid_provider_response``);
 * calls are spaced by ``min_interval_s`` to stay inside free-tier rate limits.
 
-No output-format constraint (JSON mode) is requested from either provider, so both are
-measured on the same prompt-only instruction (D-064).
+No output-format constraint (JSON mode) is requested, so every model is measured on the
+same prompt-only instruction (D-064).
 
 ``load_secrets(path)`` reads ``KEY=VALUE`` lines from the local, git-ignored secrets file
 into the process environment, only for the names in ``llm.ENV_VARS``; it returns the
 names it set, never the values.
 
-The request and response shapes follow the providers' public documentation (Groq's
-OpenAI-compatible chat completions endpoint, Gemini's ``generateContent``); they are
-tested against recorded shapes only, not yet against the live services.
+The request and response shapes follow Groq's public documentation (OpenAI-compatible chat
+completions endpoint); they are tested against recorded shapes and the first live calls
+(TRIAL-001).
 """
 
 from __future__ import annotations
@@ -40,13 +40,16 @@ from .llm import ENV_VARS, LLMError, LLMRequest, LLMResponse, LLMTimeout
 
 Transport = Callable[[str, Mapping[str, str], bytes, float], tuple[int, bytes]]
 MAX_RESPONSE_BYTES = 2_000_000
+USER_AGENT = "multi-agentic-security-research/0.1"
 _MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/\-]{0,127}$")
-_GEMINI_MODEL = re.compile(r"^(?:models/)?[a-z0-9][a-z0-9.\-]{0,99}$")
 
 
 def urllib_transport(url: str, headers: Mapping[str, str], body: bytes, timeout: float) -> tuple[int, bytes]:
     """POST ``body`` and return (HTTP status, response bytes). Errors become LLMError/LLMTimeout."""
-    req = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")
+    # A generic client name: providers' web firewalls block Python's default user-agent
+    # (Groq answered HTTP 403, "error code: 1010", in TRIAL-001; D-064).
+    merged = {"User-Agent": USER_AGENT, **dict(headers)}
+    req = urllib.request.Request(url, data=body, headers=merged, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, resp.read(MAX_RESPONSE_BYTES)
@@ -110,39 +113,60 @@ def _json(data: bytes) -> dict:
 
 class _Hosted:
     provider = ""
-    key_var = ""
+    key_vars: tuple[str, ...] = ()
 
-    def __init__(self, model: str, *, transport: Optional[Transport] = None, min_interval_s: float = 0.0,
+    def __init__(self, model: str, *, key_vars: Optional[tuple[str, ...]] = None,
+                 transport: Optional[Transport] = None, min_interval_s: float = 0.0,
                  clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep):
-        if not os.environ.get(self.key_var):
-            raise ValueError(f"{self.key_var} is not set")   # the name only, never a value
+        if key_vars is not None:
+            self.key_vars = key_vars
+        if not any(os.environ.get(v) for v in self.key_vars):
+            raise ValueError(f"none of {', '.join(self.key_vars)} is set")   # names only, never a value
         self.model = model
         self._transport = transport or urllib_transport
         self._min_interval = float(min_interval_s)
         self._clock, self._sleep = clock, sleep
         self._last: Optional[float] = None
+        self._cooldown_until = 0.0
+        self._failures = 0
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(model={self.model!r})"
 
     def _key(self) -> str:
-        key = os.environ.get(self.key_var, "")
-        if not key:
-            raise LLMError(code="missing_api_key")
-        return key
+        """The first of this client's key variables that is set, read now and never stored."""
+        for var in self.key_vars:
+            key = os.environ.get(var, "")
+            if key:
+                return key
+        raise LLMError(code="missing_api_key")
 
     def _throttle(self) -> None:
+        wait = max(self._cooldown_until - self._clock(), 0.0)
         if self._last is not None and self._min_interval > 0:
-            wait = self._min_interval - (self._clock() - self._last)
-            if wait > 0:
-                self._sleep(wait)
+            wait = max(wait, self._min_interval - (self._clock() - self._last))
+        if wait > 0:
+            self._sleep(wait)
         self._last = self._clock()
+
+    def _back_off(self) -> None:
+        """After a 429, 5xx or timeout wait progressively longer before the next call (D-065):
+        10 s, 20 s, 40 s, ... at most 120 s. A success resets it."""
+        self._failures += 1
+        self._cooldown_until = self._clock() + min(10.0 * 2 ** (self._failures - 1), 120.0)
 
     def _post(self, url: str, headers: dict, payload: dict, timeout: float) -> dict:
         self._throttle()
-        status, data = self._transport(url, headers, json.dumps(payload).encode("utf-8"), timeout)
+        try:
+            status, data = self._transport(url, headers, json.dumps(payload).encode("utf-8"), timeout)
+        except LLMError:        # timeout or connection error
+            self._back_off()
+            raise
+        if status in (429, 500, 502, 503, 504):
+            self._back_off()
         if status != 200:
             raise _status_error(status)
+        self._failures, self._cooldown_until = 0, 0.0
         return _json(data)
 
 
@@ -150,12 +174,22 @@ class GroqClient(_Hosted):
     """Groq's OpenAI-compatible chat completions API (hosted open-weight models)."""
 
     provider = "groq"
-    key_var = "AGENT4_GROQ_API_KEY"
+    # Each model slot has its own key variable, with the single-key name as a fallback; slot 2 never
+    # falls back to slot 1's key, and keys are never rotated across requests or models (D-069).
+    SLOT_KEYS = {"AGENT4_GROQ_MODEL": ("AGENT4_GROQ_API_KEY1", "AGENT4_GROQ_API_KEY"),
+                 "AGENT4_GROQ_MODEL_2": ("AGENT4_GROQ_API_KEY2", "AGENT4_GROQ_API_KEY")}
     URL = "https://api.groq.com/openai/v1/chat/completions"
     FINISH = {"stop": "end", "length": "length", "content_filter": "refusal"}
 
-    def __init__(self, model: Optional[str] = None, *, min_interval_s: float = 2.5, **kw):
-        super().__init__(_pinned(model, "AGENT4_GROQ_MODEL", _MODEL_ID), min_interval_s=min_interval_s, **kw)
+    def __init__(self, model: Optional[str] = None, *, model_var: str = "AGENT4_GROQ_MODEL",
+                 min_interval_s: float = 2.5, **kw):
+        """``model`` is an exact identifier, or it is read from the variable ``model_var``
+        (``AGENT4_GROQ_MODEL`` or ``AGENT4_GROQ_MODEL_2``): Groq limits apply per model, so a second
+        model of another family on the same account is a second client with its own variable."""
+        if model_var not in self.SLOT_KEYS:
+            raise ValueError("model_var must be AGENT4_GROQ_MODEL or AGENT4_GROQ_MODEL_2")
+        super().__init__(_pinned(model, model_var, _MODEL_ID), key_vars=self.SLOT_KEYS[model_var],
+                         min_interval_s=min_interval_s, **kw)
 
     def generate(self, request: LLMRequest) -> LLMResponse:
         payload = {"model": self.model, "stream": False, "temperature": request.temperature,
@@ -180,50 +214,6 @@ class GroqClient(_Hosted):
         return LLMResponse(text=text, stop_reason=stop, provider_response_id=_str(obj.get("id")),
                            usage=_ints({"input_tokens": usage.get("prompt_tokens"),
                                         "output_tokens": usage.get("completion_tokens")}))
-
-
-class GeminiClient(_Hosted):
-    """Google Gemini ``generateContent`` API. The key goes in the ``x-goog-api-key`` header."""
-
-    provider = "gemini"
-    key_var = "AGENT4_GEMINI_API_KEY"
-    URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    FINISH = {"STOP": "end", "MAX_TOKENS": "length", "SAFETY": "refusal", "RECITATION": "refusal",
-              "BLOCKLIST": "refusal", "PROHIBITED_CONTENT": "refusal", "SPII": "refusal"}
-
-    def __init__(self, model: Optional[str] = None, *, min_interval_s: float = 6.5, **kw):
-        m = _pinned(model, "AGENT4_GEMINI_MODEL", _GEMINI_MODEL)
-        super().__init__(m.removeprefix("models/"), min_interval_s=min_interval_s, **kw)
-
-    def generate(self, request: LLMRequest) -> LLMResponse:
-        config = {"temperature": request.temperature, "maxOutputTokens": request.max_output_tokens}
-        if request.seed is not None:
-            config["seed"] = request.seed
-        payload = {"systemInstruction": {"parts": [{"text": request.system}]},
-                   "contents": [{"role": "user" if role == "user" else "model", "parts": [{"text": text}]}
-                                for role, text in request.messages],
-                   "generationConfig": config}
-        obj = self._post(self.URL.format(model=self.model),
-                         {"x-goog-api-key": self._key(), "Content-Type": "application/json"}, payload,
-                         request.timeout_s)
-        usage = obj.get("usageMetadata") if isinstance(obj.get("usageMetadata"), dict) else {}
-        counts = _ints({"input_tokens": usage.get("promptTokenCount"),
-                        "output_tokens": usage.get("candidatesTokenCount"),
-                        "thinking_tokens": usage.get("thoughtsTokenCount")})
-        rid = _str(obj.get("responseId"))
-        feedback = obj.get("promptFeedback") if isinstance(obj.get("promptFeedback"), dict) else {}
-        candidates = obj.get("candidates")
-        if feedback.get("blockReason") and not candidates:
-            return LLMResponse(text="", stop_reason="refusal", provider_response_id=rid, usage=counts)
-        try:
-            cand = candidates[0]
-            parts = (cand.get("content") or {}).get("parts") or []
-            text = "".join(p.get("text", "") for p in parts if isinstance(p, dict) and not p.get("thought"))
-            finish = cand.get("finishReason")
-        except (KeyError, IndexError, TypeError, AttributeError):
-            raise LLMError(code="invalid_provider_response") from None
-        return LLMResponse(text=text, stop_reason=self.FINISH.get(finish, "other"), provider_response_id=rid,
-                           usage=counts)
 
 
 def _str(v) -> Optional[str]:

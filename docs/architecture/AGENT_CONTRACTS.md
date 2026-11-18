@@ -6,7 +6,7 @@ Status 2026-11-17:
 - **Agent 3 v2** and the adapter to the frozen v1 baseline are implemented (see "Agent 3: risk findings" below, D-055 to D-058, D-060, D-061).
 - **Agent 5** is implemented (see "Agent 5: independent verification" below, D-059 to D-061).
 - The **Agent 3 v1 baseline** contract is implemented. It is documented below from the code in `src/multi_agentic_security/agents/agent3_risk/baseline_v1/` and is unchanged.
-- **Agent 4** is implemented (see "Agent 4: recommendation" below, D-062): the R0 rules, the provider-independent LLM interface and the Groq and Gemini adapters (D-064); no live LLM call yet. The design rationale is in `SYSTEM_ARCHITECTURE.md`.
+- **Agent 4** is implemented (see "Agent 4: recommendation" below, D-062): the R0 rules, the provider-independent LLM interface and the Groq adapter (D-064, D-068); the first live calls are recorded in TRIAL-001 (`RUN_LOG.md`). The design rationale is in `SYSTEM_ARCHITECTURE.md`.
 
 ## Requirements that apply to every new contract (from approved decisions)
 
@@ -173,7 +173,7 @@ Rules that apply to every contract:
 
 ### Agent 4: recommendation (implemented, D-062 to D-064)
 
-- **Code:** `src/multi_agentic_security/agents/agent4_recommendation/` (stage `agent4/0.1`): `packet.py` (inputs per variant), `rules.py` (R0), `llm.py` (provider-independent interface, recorded client, raw-response stores), `prompt.py`, `parse.py`, `recommend.py`, `providers.py` (Groq and Gemini adapters, the only module with network access, D-064). Output `contracts.pipeline.RecommendationResult`; the contract is unchanged.
+- **Code:** `src/multi_agentic_security/agents/agent4_recommendation/` (stage `agent4/0.1`): `packet.py` (inputs per variant), `rules.py` (R0), `llm.py` (provider-independent interface, recorded client, raw-response stores), `prompt.py`, `parse.py`, `recommend.py`, `providers.py` (Groq adapter, the only module with network access, D-064, D-068). Output `contracts.pipeline.RecommendationResult`; the contract is unchanged.
 - **Entry point:** `recommend(extraction, registry, risk, *, evidence_store, variant="R0", llm=None, response_store=None, options=None, clock=...)`. One recommendation per Agent 1 dependency, in Agent 1's order. The cut-off is `registry.evidence_cutoff`. `RecommendationResult.stage_version` is `agent4/0.1+r0/0.1` or `agent4/0.1+a4-prompt/0.1`.
 - **Variants** (run parameter):
   - `R0`: rules, backend `rules`.
@@ -200,13 +200,13 @@ Rules that apply to every contract:
 
 - **LLM back end:**
   - `LLMClient.generate(LLMRequest) -> LLMResponse` is the only interface (D-022, D-038).
-  - Adapters (D-064): `GroqClient` and `GeminiClient`. Keys are read from the environment at each call and never recorded; model identifiers must be exact (no `latest`); no JSON mode is requested; calls are spaced for free-tier limits. No live call has been made yet. The local open-weight model is deferred (D-064 b).
+  - Adapter (D-064, D-068): `GroqClient`. Keys are read from the environment at each call and never recorded; model identifiers must be exact (no `latest`); no JSON mode is requested; calls are spaced for free-tier limits. The first live calls are in TRIAL-001. The local open-weight model is deferred (D-064 b); Gemini was removed (D-068).
   - `RecordedLLMClient` replays responses by request hash or in order.
   - The prompt is built only from structured fields inside one JSON object marked as data. The original declaration, file contents, source paths and Agent 3's explanation texts are never sent.
   - Answers are parsed strictly into the contract.
   - Retries are bounded and recorded (`LLMOptions`: schema repairs and transport retries, default 2, maximum 5). Refusals are not retried.
   - Raw responses go to a `ResponseStore` (`FileResponseStore`: one file per response named by SHA-256, never overwritten); `raw_response_ref` is `a4raw:sha256:<hex>`.
-  - Environment variables (values only in the git-ignored local secrets file; no template is kept): `AGENT4_GROQ_API_KEY`, `AGENT4_GROQ_MODEL`, `AGENT4_GEMINI_API_KEY`, `AGENT4_GEMINI_MODEL`, optional `AGENT4_LLM_TIMEOUT_SECONDS`, `AGENT4_LLM_MAX_OUTPUT_TOKENS`. `load_secrets(path)` loads only these names.
+  - Environment variables (values only in the git-ignored local secrets file; no template is kept): `AGENT4_GROQ_API_KEY1` with `AGENT4_GROQ_MODEL` (main model; the single name `AGENT4_GROQ_API_KEY` is a fallback key), optional `AGENT4_GROQ_API_KEY2` with `AGENT4_GROQ_MODEL_2` (a second Groq model, e.g. of another family; limits are per model; slot 2 never borrows slot 1's key, and keys are never rotated across requests or models), `AGENT4_LLM_TIMEOUT_SECONDS`, `AGENT4_LLM_MAX_OUTPUT_TOKENS`. `load_secrets(path)` loads only these names.
 - **Failures are states:** `llm_error`, `llm_timeout`, `schema_violation` (after the bound) and `refusal` give `abstain` with a `Failure` `a4.llm.<status>`. Client exceptions are recorded by type and an optional validated code only, never by message (D-063). A client answer of the wrong type and a response-store failure are `llm_error`. Without a package or an assessment the model is not called.
 - **Citations:** R0 cites only IDs it was given. LLM citations of IDs not given are kept and flagged (`a4.llm.cited_not_given`), so RQ1a can measure them; Agent 5 and the scorer judge them.
 - **Reason rule IDs:**
@@ -234,4 +234,13 @@ Rules that apply to every contract:
 - **Failure codes (stage `agent5`):** `a5.input.{project_mismatch,invalid_recommendations,unknown_dependency,duplicate_recommendation,missing_registry_result,missing_recommendation}`, `a5.evidence.{store_missing,store_incomplete,store_differs_from_agent2}`, `a5.registry.{no_client,live_with_cutoff,client_error}`.
 - **Limits:** Agent 5 knows only what the evidence store and the registry know at the cut-off; it cannot detect an unreported malicious package, and a report withdrawn after the cut-off already looks withdrawn in a held-out run. Releases inside an affected range that were deleted later are not visible. Under a cut-off a stated target version that does not exist is `not_run`, never `reject` (the snapshot cannot show that it was absent then). Name similarity and the target's own dependencies are not checked. Version resolution assumes a fresh install with the default resolver.
 
-The evaluation scorer is not an agent and has no contract here; see `SYSTEM_ARCHITECTURE.md` §4.
+### Pipeline orchestrator (implemented, D-066)
+
+- **Code:** `src/multi_agentic_security/pipeline/` (`graph.py`, `guardrails.py`, `llm_wrappers.py`, `snapshots.py`). LangGraph state graph; contracts unchanged.
+- **Entry point:** `run_pipeline(PipelineConfig(...)) -> RunResult(status, report, failures, run_dir, record, resumed_stages)`. `PipelineConfig` holds the project ID, the files (or an `extract_fn` for ZIP or Git intake), registry mode and clients, the evidence store, the cut-off, the Agent 4 variant, the LLM client (wrapped for cache and budget), options, `run_dir` and `resume`.
+- **Graph:** `guard_input -> extract -> extract_guard -> registry -> risk -> recommend -> verify -> report`.
+- **Failure codes (stage `pipeline`):** `pipeline.guard.{project_id,variant,llm_missing,registry_mode,live_with_cutoff,client_missing,too_many_dependencies,secret_in_output}`, `pipeline.stage_error.{extract,registry,risk,recommend,verify,report}`.
+- **Run record:** `RUN_RECORD.json` next to the stage files (`extract.json`, `registry.json`, `risk.json`, `recommend.json`, `verify.json`, `report.json`) with versions, configuration, evidence-store fingerprint, cost counters and file hashes.
+- **Cost control:** `BudgetedLLMClient` and `CachingLLMClient`. **Snapshots:** `MultiSnapshotClient`.
+
+The evaluation scorer is not an agent and has no pipeline contract (D-067): `src/multi_agentic_security/evaluation/` holds the independent scorer (`score(case, recommendation, ScoreContext) -> Score`; no agent import), `metrics.aggregate` (conditions C1-C5 per family), `stats` (Wilson, grouped bootstrap, exact McNemar, Holm, kappa, non-inferiority), `cases` (case schema, deterministic grouped split, D-044 pin rule), `harness.run_evaluation` and `budget.plan_llm_calls`. See `SYSTEM_ARCHITECTURE.md` §4 and `RUN_LOG.md` PLAN-002.

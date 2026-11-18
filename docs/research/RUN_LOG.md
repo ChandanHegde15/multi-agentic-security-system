@@ -244,3 +244,117 @@ The table leaves out `unknown` from registry mode `off`, which is on every Part 
   - R0's `abstain` and `investigate` count against coverage, not against safety.
   - `fixed_in` names the recommended version, which may lie above the advisory's own fix (D-063 d).
   - LLM citations of IDs that were not given are kept and flagged, so the unsupported-claim rate can be measured (D-062 f).
+
+## TRIAL-001 — First live calls to Groq and Gemini on the fixture project (2026-11-18)
+
+*Note (D-068, 2026-11-19): Gemini was removed from the project after this trial. The Gemini rows below are kept as the record of what was run.*
+
+- **Purpose:** check the adapters (D-064), response formats, failure handling and speed. **Not an evaluation:** no case set, no ground truth, no claim about model quality.
+- **Inputs:** the hand-written fixture project `tests/fixtures/agent2` (19 dependencies; invented or well-known names; no dataset records, no user data), no cut-off, Agents 1 → 2 (snapshot) → 3 → 4 (LLM-U and LLM-G) → 5. Output budget 2048 tokens, temperature 0, timeout 120 s, `a4-prompt/0.1`.
+- **Models:** Groq `openai/gpt-oss-20b` (a reasoning model); Gemini: the model named in the owner's local settings (not recorded in this run file; to be recorded in the next run).
+- **Raw output (git-ignored):** `runtime/runs/trial001_2026-11-18/` (attempt 1) and `runtime/runs/trial001b_2026-11-18/` (attempt 2); one JSON file per response, named by SHA-256, plus result tables.
+
+### Results
+
+| Attempt | Provider | Outcome |
+|---|---|---|
+| 1 | Groq | 108 calls, all HTTP 403 (`error code: 1010`): firewall block on Python's default user-agent. Fixed in D-065 a. |
+| 1 | Gemini | partly run: 20 × 503, 1 timeout, 1 × 429 (service overloaded or limited). Stopped by hand. |
+| 2 | Groq | 66 calls: 29 complete answers, 37 × HTTP 429 (rate limit). |
+| 2 | Gemini | 106 calls: 0 answers; 102 × 429, 2 connection errors, 1 × 503, 1 timeout. |
+| 2 | — | Stopped by the system because the computer was critically low on memory (not caused by the trial). |
+
+**Groq answers that were received (attempt 2; counts are of recommendations, not independent samples; n = 19 per variant, 6 or 2 lost to rate limits as `llm_error` → `abstain`):**
+- LLM-G: 13 answers, all well-formed. Agent 5: 11 verified, 1 rejected, 1 needs review. LLM-U: 17 answers; Agent 5: 10 verified, 7 rejected (every rejection is `claims_supported`: claims that cite no evidence), plus 2 abstains from rate limits.
+- **Agreement with R0 for LLM-G on the same fixture:** the same action on `evil-pkg` (remove), `strign-width` (replace `string-width`), `reqeusts-hallucinated` (remove), `requests==2.31.0` (upgrade 2.32.3, but see below) and `@types/node` (keep). The unresolved import abstained. `numpy` (registry state unknown): the model said keep, R0 abstains, Agent 5 "needs review".
+- **One rejected grounded answer (`requests==2.31.0`):** the action and target equal R0's, but both `is_vulnerable` claims put an affected version range (`>=2.0.0,<2.31.0`) in the `object` field, which must be a single version; Agent 5 rejected it as not a valid version. The cited evidence IDs were correct. This is the kind of unsupported claim the verifier is meant to catch.
+- **LLM-U** (finding names only): its rejections all come from claims that cite no evidence, as expected for the ungrounded variant; for example it chose `remove` for a package with a withdrawn report only.
+- All 29 Groq answers ended normally (`stop_reason: end`); none was cut off at the 2048-token budget.
+
+### Limits
+- 19 dependencies from a hand-written fixture; no inference about model quality or rates; Gemini produced no answer, so nothing is known about it.
+- Rate limits, not the models, caused most failures. The free-tier limits of both accounts are not yet read from the consoles.
+- The prompt was not changed after these observations (D-065 e).
+- A reasoning model's hidden reasoning tokens count toward its limits and its budget; the next run records token usage per call.
+
+
+## PLAN-002 — Evaluation protocol and free-tier budget (plan, not a result; 2026-11-19)
+
+**Status: plan only. Nothing has been run and nothing is frozen.** The machinery exists (D-067); this lists what must be fixed and hashed before the first scored run.
+
+**To freeze before any run (the protocol hash covers all of it):**
+- the case lists (one per family) with their SHA-256, built from real evidence and real manifests only; the real-project sample of D-044 for the vulnerable family (acquisition needs the owner's approval);
+- the split rule: `split_of`, seed 20261114, test fraction; the development side is used for prompt and rule changes, the test side once;
+- the cut-offs (several, `RESEARCH_QUESTIONS.md` §6) and the registry snapshot folders, with hashes; no live lookups in held-out runs;
+- the recommenders: R0 (`r0/0.1`), the prompt `a4-prompt/0.1` (or a versioned later one chosen on development cases only), the exact model IDs, temperature 0, seeds, the output-token limit;
+- the non-inferiority margin for HYP4, the bootstrap size and seed, the family and model correction (Holm);
+- the reporting rules: in-snapshot and held-out results separately; families never pooled; withheld recommendations count as lower coverage.
+
+**Free-tier budget** (from the planner, D-067 f; assumptions: 1,400 tokens per call, 15% extra calls for repairs and errors, both LLM variants):
+
+| Cases | Calls per model | Days at 142 calls/day (Groq, published base limits) |
+|---|---|---|
+| 100 (pilot) | 230 | 2 |
+| 300 | 690 | 5 |
+| 600 | 1,380 | 10 |
+| 1,000 | 2,300 | 17 |
+
+- C4 and C5 reuse the C3 and C1 runs (no extra calls). Re-running a finished run costs nothing (response cache).
+- The numbers assume the published base limits apply to the owner's free plan; the console's Limits page is authoritative. Tokens per day is the binding limit, so a shorter prompt or a smaller output budget is the main lever, and any change is a new prompt version tested on development cases only.
+- A resumable run that stops cleanly at the daily budget is the next engineering step.
+
+**Not covered by the machinery:** human ratings and the claim-matcher audit (need annotators), the external audit tool C6, detection recall (RQ4).
+
+**Known gaps in the scorer (stated, to be tested on real data):** version logic shared with Agent 5 for the range grammar; `U-V` needs the target's version list (PLAN-001 lookups), otherwise it is not scorable; no npm advisories exist in the evidence tables, so `U-V` is PyPI only.
+
+**Owner's console limits (2026-11-19):** Groq `openai/gpt-oss-20b`: 30 requests/min, 8,000 tokens/min, 1,000 requests/day, 200,000 tokens/day (confirmed from the console, with the documentation page). The other model checked that day allowed 20 requests/day, which made a pilot take 12 days and a test set 35 days, so it was removed (D-068). Groq needs about 5 calls per minute (tokens per minute bind), roughly 46 minutes for 100 cases, if the daily token limit allows it. A second provider and model from another family is still to be chosen (D-068 d).
+
+**Second-provider candidates (researched 2026-11-19 from the providers' own documentation pages; owner chooses; nothing is installed or called):**
+
+| Candidate | What the official page says | Fit |
+|---|---|---|
+| **Groq, another model on the same account** | The rate-limits page lists `qwen/qwen3.8-27b` next to the gpt-oss models with the same base limits (30 requests/min, 1,000/day, 8,000 tokens/min, 200,000 tokens/day) and says limits apply per model. | Different family (Qwen), no new account, no new adapter. The owner's console must show the model on the free plan; same-account quotas are separate per model but the organisation is the same. |
+| **Cloudflare Workers AI** | Free allocation of 10,000 neurons per day, reset at 00:00 UTC; text generation 300 requests/min; open-weight models from Llama, Qwen, Mistral, Gemma and DeepSeek families (some DeepSeek, Kimi and GLM models need a paid billing method). The page does not state whether a credit card is needed, and does not publish a daily request limit. | At about 900 input and 460 to 1,000 output tokens per call, `qwen3-30b-a3b-fp8` costs about 18 to 35 neurons per call, i.e. roughly 280 to 550 calls per day (my arithmetic from the published neuron prices; unverified in practice). Needs a new account, an API token and a new adapter (the endpoint shape is not checked yet). |
+| **Cerebras** | Free trial credits of $5 "after adding a verified payment method"; `gpt-oss-120b` 5 requests/min; `qwen-3.8-27b` 300 requests/min. | A payment method is needed: against the owner's no-investment rule. |
+| **GitHub Models** | Retired on 30 July 2026. | Not available. |
+| **Mistral** | The documentation pages checked did not state free-tier limits; secondary sources say the free tier requires opting in to data training. | Unverified; not recommended without a check of Mistral's console. |
+| **OpenRouter free models** | Secondary sources: 50 requests/day without purchased credit. | Too small; the serving provider behind a free model can change. |
+
+Suggested set (D-038: models from different families): gpt-oss-20b on Groq (OpenAI family, working), `qwen/qwen3.8-27b` on Groq (Qwen), and one Llama, Mistral or Gemma model on Cloudflare Workers AI if the owner wants a third provider.
+
+**Confirmed console limits for both Groq models (owner, 2026-11-19):** `openai/gpt-oss-20b` and `qwen/qwen3.8-27b` each show 30 requests/min, 1,000 requests/day, 8,000 tokens/min and 200,000 tokens/day; the Qwen model is therefore available on the owner's free plan. Limits are per model, so the two models have separate quotas (documentation statement; not yet tested). Tokens per day binds: about 142 calls per day per model at 1,400 tokens per call, so 100 cases with both variants take about 2 days, 300 cases about 5 days and 600 cases about 10 days, and the two models can run in the same days. Unverified: whether Groq counts the requested output limit (2,048) against tokens per minute; if it does, a call reserves about 2,950 tokens and only about 2 calls per minute fit in 8,000. The first trial of each model measures this (the 429 responses and the adapter's back-off make it visible).
+
+**Splits:** train / dev (validation) / test and the fine-tuning pool are defined in `docs/research/EVALUATION_SPLITS.md` (D-070); none is built yet. Add the split design to the protocol hash list above.
+
+## TRIAL-002 — Both Groq models on the fixture project (2026-11-19)
+
+- **Purpose:** check both configured models (D-069) for answer format, failures, speed and token use after the adapter fixes of D-065. **Not an evaluation:** 19 hand-written fixture dependencies, no ground truth, no claim about model quality.
+- **Inputs:** `tests/fixtures/agent2` (no cut-off), Agents 1 → 2 (snapshot) → 3 → 4 (LLM-U and LLM-G) → 5; `a4-prompt/0.1` unchanged; temperature 0; output limit 2,048 tokens; two schema repairs and two transport retries allowed; calls spaced 12 s (about 5 per minute); response cache and a 130-call budget per model.
+- **Models:** `openai/gpt-oss-20b` (slot 1) and `qwen/qwen3.8-27b` (slot 2), each with its own key variable.
+- **Raw output (git-ignored):** `runtime/runs/trial002_2026-11-19/`, one JSON file per response named by SHA-256, plus result tables and `summary.json`.
+
+### Results
+
+| Model | Variant | Answers (attempts) | Malformed then repaired | Recommendations completed | Agent 5 verdicts | Tokens in / out | Time |
+|---|---|---|---|---|---|---|---|
+| gpt-oss-20b | LLM-U | 21 | 3 | 19 of 19 | 11 verified, 8 rejected | 11,855 / 8,188 | 241 s |
+| gpt-oss-20b | LLM-G | 20 | 2 | 19 of 19 | 15 verified, 4 rejected | 14,199 / 10,441 | 240 s |
+| qwen3.8-27b | LLM-U | 18 | 0 | 19 of 19 | 11 verified, 8 rejected | 8,994 / 2,444 | 204 s |
+| qwen3.8-27b | LLM-G | 19 | 1 | 19 of 19 | 16 verified, 3 rejected | 12,768 / 2,856 | 229 s |
+
+- **No rate-limit error (HTTP 429) and no `llm_error` in 76 recommendations' worth of calls** at 12 s spacing; the daily and per-minute limits did not bind in this trial.
+- Of gpt-oss-20b's 41 answers, 2 stopped at the 2,048-token limit (`stop_reason: length`) and were repaired by the retry; all 37 Qwen answers ended normally.
+- Every rejection was the check `claims_supported`; no other check failed. No recommendation cited an evidence ID that was not given.
+- **Token use per call** (input plus output, from the providers' counts): gpt-oss-20b about 1,230 (grounded) and 1,000 (ungrounded); Qwen about 820 and 640. Qwen's outputs are about a quarter of gpt-oss's, because gpt-oss spends tokens on hidden reasoning. The planner's 1,400 tokens per call is therefore conservative; at 200,000 tokens per day this is about 160 to 310 calls per day per model instead of 142 (PLAN-002).
+- **Grounded answers against the rule baseline (R0) on the same fixture, descriptive only:**
+  - both models removed `evil-pkg`, `reqeusts-hallucinated` and `undated-bad` (the reported malicious or invented names), as R0 does;
+  - gpt-oss replaced `strign-width` with `string-width` as R0 does (verified); Qwen chose `remove` and was rejected on its claims;
+  - on the pinned vulnerable `requests==2.31.0` both chose an upgrade (2.32.0 and 2.32.3) and were verified; for the unpinned `requests` entries both chose `upgrade` where R0 keeps, and Agent 5 rejected those claims;
+  - gpt-oss removed `lodash` (withdrawn report only) and `compromised-lib` and was rejected on both; Qwen kept `lodash` and removed `compromised-lib` and was verified on both.
+- The exact claim errors behind each rejection were not analysed in this trial.
+
+### Limits
+- 19 fixture dependencies, one run per model and variant; no confidence interval and no comparison between the models can be drawn.
+- The fixture holds invented package names and small hand-written evidence; it says nothing about real packages.
+- The prompt was not changed after these observations (D-065 e).
+- The first run of each model: the speed numbers include the 12 s spacing.

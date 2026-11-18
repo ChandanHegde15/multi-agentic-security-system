@@ -1,7 +1,7 @@
 """Provider-independent LLM interface for Agent 4 (D-022, D-038, D-062).
 
 Agent 4 talks to every model through ``LLMClient.generate(LLMRequest) -> LLMResponse``.
-Provider adapters (``providers.py``: Groq and Gemini, D-064) map this to their own API,
+Provider adapters (``providers.py``: Groq, D-064, D-068) map this to their own API,
 enforce ``request.timeout_s`` and raise ``LLMTimeout`` or ``LLMError``; they read their
 API key from the environment at call time and never record it.
 
@@ -10,8 +10,8 @@ experiment without calling the provider again). ``ResponseStore`` keeps every ra
 response; a recommendation refers to it by ``raw_response_ref``.
 
 Environment variable names (values only in the git-ignored local secrets file; no
-template is kept in the repository, D-064): ``AGENT4_GROQ_API_KEY``, ``AGENT4_GROQ_MODEL``,
-``AGENT4_GEMINI_API_KEY``, ``AGENT4_GEMINI_MODEL``, and optionally
+template is kept in the repository, D-064): ``AGENT4_GROQ_API_KEY1`` and ``AGENT4_GROQ_MODEL`` (or the single ``AGENT4_GROQ_API_KEY``), optionally
+``AGENT4_GROQ_API_KEY2`` with ``AGENT4_GROQ_MODEL_2`` for a second model, and optionally
 ``AGENT4_LLM_TIMEOUT_SECONDS``, ``AGENT4_LLM_MAX_OUTPUT_TOKENS``.
 """
 
@@ -25,8 +25,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Protocol, Union, runtime_checkable
 
-ENV_VARS = ("AGENT4_GROQ_API_KEY", "AGENT4_GROQ_MODEL", "AGENT4_GEMINI_API_KEY", "AGENT4_GEMINI_MODEL",
-            "AGENT4_LLM_TIMEOUT_SECONDS", "AGENT4_LLM_MAX_OUTPUT_TOKENS")
+ENV_VARS = ("AGENT4_GROQ_API_KEY", "AGENT4_GROQ_API_KEY1", "AGENT4_GROQ_API_KEY2", "AGENT4_GROQ_MODEL", "AGENT4_GROQ_MODEL_2", "AGENT4_LLM_TIMEOUT_SECONDS",
+            "AGENT4_LLM_MAX_OUTPUT_TOKENS")
 STOP_REASONS = ("end", "length", "refusal", "other")
 RAW_FORMAT = "a4_raw_response/1"
 
