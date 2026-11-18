@@ -346,12 +346,16 @@ def _imports(path):
 
 
 def test_agent4_imports_no_network_library_and_no_other_agent():
-    banned = ("socket", "http", "urllib", "requests", "httpx", "aiohttp", "subprocess",
-              "multi_agentic_security.agents.agent5", "multi_agentic_security.agents.agent3",
+    """Only providers.py may use the network (D-064); no Agent 4 module imports another agent,
+    and nothing imports providers.py implicitly (the package __init__ does not)."""
+    net = ("socket", "http", "urllib", "requests", "httpx", "aiohttp")
+    banned = ("subprocess", "multi_agentic_security.agents.agent5", "multi_agentic_security.agents.agent3",
               "multi_agentic_security.agents.agent2", "multi_agentic_security.agents.agent1")
     files = sorted(AGENT4_DIR.glob("*.py"))
-    assert files
+    assert files and (AGENT4_DIR / "providers.py") in files
     for f in files:
         for name in _imports(f):
-            assert not any(name == b or name.startswith(b + ".") or name.startswith(b) and "agents" in b
-                           for b in banned), (f.name, name)
+            assert not any(name == b or name.startswith(b + ".") for b in banned), (f.name, name)
+            if f.name != "providers.py":
+                assert not any(name == b or name.startswith(b + ".") for b in net), (f.name, name)
+                assert "providers" not in name, (f.name, name)

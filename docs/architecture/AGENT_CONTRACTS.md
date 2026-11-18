@@ -6,7 +6,7 @@ Status 2026-11-17:
 - **Agent 3 v2** and the adapter to the frozen v1 baseline are implemented (see "Agent 3: risk findings" below, D-055 to D-058, D-060, D-061).
 - **Agent 5** is implemented (see "Agent 5: independent verification" below, D-059 to D-061).
 - The **Agent 3 v1 baseline** contract is implemented. It is documented below from the code in `src/multi_agentic_security/agents/agent3_risk/baseline_v1/` and is unchanged.
-- **Agent 4** is implemented (see "Agent 4: recommendation" below, D-062): the R0 rules and the provider-independent LLM interface; no provider adapter exists yet. The design rationale is in `SYSTEM_ARCHITECTURE.md`.
+- **Agent 4** is implemented (see "Agent 4: recommendation" below, D-062): the R0 rules, the provider-independent LLM interface and the Groq and Gemini adapters (D-064); no live LLM call yet. The design rationale is in `SYSTEM_ARCHITECTURE.md`.
 
 ## Requirements that apply to every new contract (from approved decisions)
 
@@ -171,9 +171,9 @@ Rules that apply to every contract:
 - **Failure codes (stage `agent3`):** `a3.input.{project_mismatch,duplicate_registry_result,unknown_dependency,missing_registry_result}`, `a3.evidence.{store_missing,not_looked_up_by_agent2,store_mismatch,store_incomplete,unknown_id,wrong_package,after_cutoff}`.
 - **Limits:** declared npm ranges follow the documented node-semver grammar (pre-releases only through a comparator naming the same version); evidence ranges (both ecosystems) are ordered intervals that include pre-releases, as OSV orders versions by precedence (D-058, D-060; `versioning/evidence_ranges.py`); `*`, `""` and `latest` install the `latest` dist-tag even when it is a pre-release, and `x` is an ordinary range (D-058, D-060); under a cut-off a listed pre-release that `*` could install is `undetermined`; tags, URLs and aliases stay `undetermined`. The resolved version ignores other constraints of the environment. A release missing from the registry list is `undetermined`. Similarity uses one edit only and is off in held-out runs before the popular lists' date (2026-11-01). Agent 2 sets `retrieved_after_cutoff` on every looked-up result when a cut-off is given.
 
-### Agent 4: recommendation (implemented, D-062, D-063)
+### Agent 4: recommendation (implemented, D-062 to D-064)
 
-- **Code:** `src/multi_agentic_security/agents/agent4_recommendation/` (stage `agent4/0.1`): `packet.py` (inputs per variant), `rules.py` (R0), `llm.py` (provider-independent interface, recorded client, raw-response stores), `prompt.py`, `parse.py`, `recommend.py`. Output `contracts.pipeline.RecommendationResult`; the contract is unchanged.
+- **Code:** `src/multi_agentic_security/agents/agent4_recommendation/` (stage `agent4/0.1`): `packet.py` (inputs per variant), `rules.py` (R0), `llm.py` (provider-independent interface, recorded client, raw-response stores), `prompt.py`, `parse.py`, `recommend.py`, `providers.py` (Groq and Gemini adapters, the only module with network access, D-064). Output `contracts.pipeline.RecommendationResult`; the contract is unchanged.
 - **Entry point:** `recommend(extraction, registry, risk, *, evidence_store, variant="R0", llm=None, response_store=None, options=None, clock=...)`. One recommendation per Agent 1 dependency, in Agent 1's order. The cut-off is `registry.evidence_cutoff`. `RecommendationResult.stage_version` is `agent4/0.1+r0/0.1` or `agent4/0.1+a4-prompt/0.1`.
 - **Variants** (run parameter):
   - `R0`: rules, backend `rules`.
@@ -199,13 +199,14 @@ Rules that apply to every contract:
   | No evidence | `keep` | `no_evidence_found` only when the store is usable and no risk record names the package |
 
 - **LLM back end:**
-  - `LLMClient.generate(LLMRequest) -> LLMResponse` is the only interface (D-022, D-038). Provider adapters do not exist yet; they wait for the owner's choice of providers and pinned models.
+  - `LLMClient.generate(LLMRequest) -> LLMResponse` is the only interface (D-022, D-038).
+  - Adapters (D-064): `GroqClient` and `GeminiClient`. Keys are read from the environment at each call and never recorded; model identifiers must be exact (no `latest`); no JSON mode is requested; calls are spaced for free-tier limits. No live call has been made yet. The local open-weight model is deferred (D-064 b).
   - `RecordedLLMClient` replays responses by request hash or in order.
   - The prompt is built only from structured fields inside one JSON object marked as data. The original declaration, file contents, source paths and Agent 3's explanation texts are never sent.
   - Answers are parsed strictly into the contract.
   - Retries are bounded and recorded (`LLMOptions`: schema repairs and transport retries, default 2, maximum 5). Refusals are not retried.
   - Raw responses go to a `ResponseStore` (`FileResponseStore`: one file per response named by SHA-256, never overwritten); `raw_response_ref` is `a4raw:sha256:<hex>`.
-  - API key names are in `.env.example`.
+  - Environment variables (values only in the git-ignored local secrets file; no template is kept): `AGENT4_GROQ_API_KEY`, `AGENT4_GROQ_MODEL`, `AGENT4_GEMINI_API_KEY`, `AGENT4_GEMINI_MODEL`, optional `AGENT4_LLM_TIMEOUT_SECONDS`, `AGENT4_LLM_MAX_OUTPUT_TOKENS`. `load_secrets(path)` loads only these names.
 - **Failures are states:** `llm_error`, `llm_timeout`, `schema_violation` (after the bound) and `refusal` give `abstain` with a `Failure` `a4.llm.<status>`. Client exceptions are recorded by type and an optional validated code only, never by message (D-063). A client answer of the wrong type and a response-store failure are `llm_error`. Without a package or an assessment the model is not called.
 - **Citations:** R0 cites only IDs it was given. LLM citations of IDs not given are kept and flagged (`a4.llm.cited_not_given`), so RQ1a can measure them; Agent 5 and the scorer judge them.
 - **Reason rule IDs:**

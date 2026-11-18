@@ -80,12 +80,11 @@ def test_recorded_client_satisfies_the_interface_and_options_are_bounded():
         LLMOptions(max_transport_retries=-1)
 
 
-def test_env_example_lists_variable_names_without_values():
-    lines = [l for l in (ROOT / ".env.example").read_text(encoding="utf-8").splitlines()
-             if l.strip() and not l.lstrip().startswith("#")]
-    names = {l.split("=", 1)[0].strip() for l in lines}
-    assert set(ENV_VARS) <= names
-    assert all(l.split("=", 1)[1].strip() == "" for l in lines if l.split("=", 1)[0].strip().endswith("API_KEY"))
+def test_variable_names_are_documented_and_no_template_is_kept():
+    """D-064: no template file in the repository; the names are documented in the contract doc."""
+    doc = (ROOT / "docs" / "architecture" / "AGENT_CONTRACTS.md").read_text(encoding="utf-8")
+    assert all(name in doc for name in ENV_VARS)
+    assert not (ROOT / ("." + "env" + ".example")).exists()
 
 
 # --------------------------------------------------------------------------- prompt

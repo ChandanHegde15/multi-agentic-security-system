@@ -1,18 +1,17 @@
 """Provider-independent LLM interface for Agent 4 (D-022, D-038, D-062).
 
 Agent 4 talks to every model through ``LLMClient.generate(LLMRequest) -> LLMResponse``.
-A provider adapter (written once the owner has chosen the providers and pinned the
-models) maps this to its own API, enforces ``request.timeout_s`` and raises
-``LLMTimeout`` or ``LLMError``; it reads its API key from the environment at call
-time and never logs it. No adapter for a real provider exists yet.
+Provider adapters (``providers.py``: Groq and Gemini, D-064) map this to their own API,
+enforce ``request.timeout_s`` and raise ``LLMTimeout`` or ``LLMError``; they read their
+API key from the environment at call time and never record it.
 
 ``RecordedLLMClient`` replays recorded responses (tests, and re-running a finished
 experiment without calling the provider again). ``ResponseStore`` keeps every raw
 response; a recommendation refers to it by ``raw_response_ref``.
 
-Environment variable names (values only in the git-ignored ``.env``; see ``.env.example``):
-``AGENT4_GROQ_API_KEY``, ``AGENT4_GROQ_MODEL``, ``AGENT4_GEMINI_API_KEY``, ``AGENT4_GEMINI_MODEL``,
-``AGENT4_OLLAMA_BASE_URL``, ``AGENT4_OLLAMA_MODEL``,
+Environment variable names (values only in the git-ignored local secrets file; no
+template is kept in the repository, D-064): ``AGENT4_GROQ_API_KEY``, ``AGENT4_GROQ_MODEL``,
+``AGENT4_GEMINI_API_KEY``, ``AGENT4_GEMINI_MODEL``, and optionally
 ``AGENT4_LLM_TIMEOUT_SECONDS``, ``AGENT4_LLM_MAX_OUTPUT_TOKENS``.
 """
 
@@ -27,8 +26,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Protocol, Union, runtime_checkable
 
 ENV_VARS = ("AGENT4_GROQ_API_KEY", "AGENT4_GROQ_MODEL", "AGENT4_GEMINI_API_KEY", "AGENT4_GEMINI_MODEL",
-            "AGENT4_OLLAMA_BASE_URL", "AGENT4_OLLAMA_MODEL", "AGENT4_LLM_TIMEOUT_SECONDS",
-            "AGENT4_LLM_MAX_OUTPUT_TOKENS")
+            "AGENT4_LLM_TIMEOUT_SECONDS", "AGENT4_LLM_MAX_OUTPUT_TOKENS")
 STOP_REASONS = ("end", "length", "refusal", "other")
 RAW_FORMAT = "a4_raw_response/1"
 

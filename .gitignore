@@ -1,33 +1,54 @@
-# --- Secrets ---
+# =============================================================================
+# Multi-Agentic Security System - files that must never be committed
+# =============================================================================
+
+# --- Secrets: API keys and credentials ---------------------------------------
+# API keys live only in the local .env file. No template is kept in the
+# repository; the variable names are documented in
+# docs/architecture/AGENT_CONTRACTS.md (Agent 4).
 .env
 .env.*
-!.env.example
+*.env
+.envrc
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+secrets/
 
-# --- Python ---
+# --- Python -------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *.egg-info/
+*.egg
 .venv/
 venv/
-env/
+/env/
 build/
 dist/
+.ipynb_checkpoints/
 
-# --- Test and tool caches ---
+# --- Test and tool caches -----------------------------------------------------
 .pytest_cache/
 .pytest_tmp/
 .pytest-tmp/
 .coverage
+.coverage.*
 htmlcov/
+.tox/
 .mypy_cache/
 .ruff_cache/
 
-# --- Research data: never committed (see docs/datasets/DATASET_CATALOG.md) ---
+# --- Research data (see docs/datasets/DATASET_CATALOG.md) ---------------------
 # The primary dataset lives in research/datasets/ on the owner's machine only.
-# It contains live malware samples (inside an archive) and data without redistribution rights.
+# It contains live malware samples (inside an archive) and data without
+# redistribution rights. Registry snapshots, run outputs and raw model
+# responses are stored there too.
 /research/datasets/
-research_data/
-data/
+/research_data/
+/data/
 *.zip
 *.tgz
 *.tar
@@ -39,27 +60,33 @@ data/
 *.rar
 *.parquet
 
-# --- Model weights and training state ---
-models/
-checkpoints/
+# --- Model weights and training state -----------------------------------------
+/models/
+/checkpoints/
 *.safetensors
+*.gguf
 *.pt
 *.pth
 *.bin
 *.ckpt
 *.onnx
 
-# --- Frontend ---
+# --- Runtime data: user uploads, run records, reports, raw LLM responses -------
+# Untrusted input; never committed.
+/runtime/
+
+# --- Literature PDFs: publisher copies -----------------------------------------
+/papers/
+
+# --- Frontend -------------------------------------------------------------------
 node_modules/
 
-# --- IDE / OS ---
+# --- Logs -----------------------------------------------------------------------
+*.log
+
+# --- IDE / OS ---------------------------------------------------------------------
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
-
-# --- Literature PDFs: publisher copies, never committed ---
-/papers/
-
-# --- Runtime data: user uploads, run records and reports (untrusted input, never committed) ---
-/runtime/
+desktop.ini
