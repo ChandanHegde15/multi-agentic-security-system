@@ -58,7 +58,7 @@ Supporting questions RQ2–RQ4 cover grounding (a replication), per-family diffe
 | `docs/datasets/DATASET_CATALOG.md` | Data sources, location, licences, known issues |
 | `docs/datasets/DATASET_MIGRATION_PLAN.md` | The executed move of the dataset into `research/datasets/` |
 
-## 2. Five-agent architecture (design approved, D-025; system specification D-047; contracts implemented, agents in progress)
+## 2. Five-agent architecture (design approved, D-025; system specification D-047; all five agents, the pipeline and the evaluation machinery implemented; no scored evaluation yet)
 
 | # | Legacy role | New role |
 |---|---|---|
