@@ -358,3 +358,44 @@ Suggested set (D-038: models from different families): gpt-oss-20b on Groq (Open
 - The fixture holds invented package names and small hand-written evidence; it says nothing about real packages.
 - The prompt was not changed after these observations (D-065 e).
 - The first run of each model: the speed numbers include the 12 s spacing.
+
+## RUN-004 — the whole pipeline, rule recommender (R0), on the RUN-003 inputs, offline (2026-11-20)
+
+- **Purpose:** run Agents 1 to 5 (variant R0, no LLM) end to end on real inputs and classify every verdict that is not "verified". **Not an experiment of the evaluation design:** the inputs are the purposive RUN-003 inputs, no split.
+- **Inputs:** Part A, the 326 indexed manifests of the 12 real repositories (3,897 dependencies); Part B, the 22 conflict-list names with generated declarations (98 dependencies). Registry data: snapshot folders `run003_2026-11-17` and `live_check_2026-11-16` through the multi-folder client, for Agent 2 and Agent 5. No network. Cut-offs: none, 2024-12-01, 2025-09-01.
+- **Output:** `research/datasets/runs/run004_2026-11-20/results_run004.json`, SHA-256 `367a6a43ee81cf0ced0ef1e792766370e473f7f00ad45244afb9e33426410956`; script `scripts/run.py` (SHA-256 `2d486eff60ddf6b67f44a437cff5db9e8e9f4dcb64f0dc1d99c846088e57d361`; run from an identical copy, because code stored under the research data is not executed).
+
+| Part, cut-off | Dependencies | Actions | Verdicts |
+|---|---|---|---|
+| A, none | 3,897 | abstain 3,684; investigate 72; keep 141 | verified 3,897 |
+| A, 2024-12-01 and 2025-09-01 | 3,897 | abstain 3,751; investigate 5; keep 141 | verified 3,883; needs review 14 |
+| B, none | 98 | keep 65; upgrade 19; abstain 13; remove 1 | verified 98 |
+| B, 2024-12-01 | 98 | keep 92; investigate 3; abstain 3 | verified 49; needs review 49 |
+| B, 2025-09-01 | 98 | keep 90; investigate 5; abstain 3 | verified 55; needs review 43 |
+
+- **Rejected verdicts: 0 in all six runs.** Registry-missing dependencies: 3,756 of Part A's dependencies have no snapshot (status `not_checked`; R0 abstains); Part B has none. Targets missing from a snapshot: 0 (no recommendation named another package).
+- **Every needs-review verdict (63 + 57, counting Parts A and B at the two cut-offs) has one cause:** the pinned version was released after the cut-off ("not among the registry's releases before the cut-off"), so the verifier cannot check the action. Classification: **correct verifier decision** in all of them; R0 defects 0; Agent 5 defects 0. The cause is an artefact of applying a historical cut-off to current manifests, not of either agent. (My classification, from the recorded check detail.)
+- **Part B findings are identical to RUN-003 after D-061** at every cut-off. Part A differs from RUN-003 only because registry data now exists for 141 dependencies: `unknown` disappears for them, and two rows resolve to a version that is no longer flagged (`debug ^4.4.0` in one repository and `requests>=2.32.0` in another); not independently verified beyond the finding change.
+- **R0 observation:** where a malicious report names only versions, there is no stated fix and R0 abstains (rule 6 of `rules.py`, D-062).
+
+## RUN-005 — R0 on the development cases, C1 and C5 (2026-11-20; DEV numbers, descriptive)
+
+- **Inputs:** `cases_v2/dev.jsonl` (447 cases, SHA-256 `c15418e9…385f`), the three snapshot folders (RUN-003, live check, `dev_2026-11-20`), the full evidence store. Two cut-offs: none and 2025-09-01. The test side was not read.
+- **Output:** `research/datasets/runs/run005_2026-11-20/{nocutoff,cut2025-09-01}/` (rows, errors, metrics, protocol; written once). `metrics.json` SHA-256: no cut-off `8fba034a…d93b`, 2025-09-01 `911e4475…2ca2`. 0 pipeline errors in either run.
+
+| Cut-off | Family | Cases | R0 actions (C1) | Unsafe (scorer, full evidence) | Verifier (C5) |
+|---|---|---|---|---|---|
+| none | benign reference | 104 | keep 104 | 0 / 104 | all verified |
+| none | malicious | 251 | abstain 137; remove 109; replace 5 | 0 / 109 | 5 needs review (target not in a snapshot) |
+| none | typosquat | 89 | replace 89 | 0 / 51 (38 not scorable) | 38 needs review (target not in a snapshot) |
+| none | vulnerable | 3 | upgrade 3 | 0 / 3 | all verified |
+| 2025-09-01 | benign reference | 104 | keep 94; abstain 10 | 0 / 94 | 2 needs review (pin after cut-off) |
+| 2025-09-01 | malicious | 251 | abstain 205; remove 37; investigate 6; keep 3 | 3 / 46 | 3 withheld (the 3 unsafe keeps) |
+| 2025-09-01 | typosquat | 89 | abstain 57; keep 25; investigate 7 | 25 / 32 | 0 withheld: 25 unsafe kept |
+| 2025-09-01 | vulnerable | 3 | upgrade 2; keep 1 | 2 / 3 | 0 withheld |
+
+- **Rejected verdicts: 0.** All 43 non-verified verdicts without a cut-off are the PLAN-001 gap: R0's `replace` target has no snapshot (25 distinct names, listed in `snapshot_plan_dev_batch2_r0.json`); the verifier correctly says it cannot check. At 2025-09-01 all 5 are "pinned version or registry answer after the cut-off". No R0 defect and no Agent 5 defect was found.
+- **Hindsight reading (by design, RESEARCH_QUESTIONS section 6):** the 25 typosquat "keep" actions at 2025-09-01 are scored unsafe because the pair records are unknown to the system before the cut-off (YCTT pairs carry the dataset date 2026-10-21; Ecosyste.ms pairs are undated), and Agent 5 cannot know either. This measures dating of the pair sources, not detection; see the protocol draft.
+- **R0 coverage:** 137 of 251 malicious cases abstain without a cut-off, because version-specific reports state no fixed version (D-062); R0 never recommends `remove` for a compromised pinned version.
+- **Vulnerable family:** 3 cases in 1 group; nothing can be concluded.
+- **Scorer audit by hand:** 30 scored recommendations (15 per run: 3 benign, 5 malicious, 5 typosquat, 2 vulnerable) read against the raw evidence records and registry facts: the unsafe flags, target status and claim verdicts agreed in 30 of 30. Not checked by hand: the exact counts of cited and gold identifiers beyond plausibility. One by-design behaviour seen: where the dependency version cannot be resolved, a package's version-specific records are all counted as possibly relevant in the gold list.

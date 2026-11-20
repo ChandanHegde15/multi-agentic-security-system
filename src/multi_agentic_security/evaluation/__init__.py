@@ -6,10 +6,10 @@ from .cases import (
     split_three_way, verify_splits, vulnerable_cases_from_pins, write_cases,
 )
 from .harness import EvalEnv, EvaluationResult, run_evaluation, run_variant, write_result
-from .metrics import CONDITIONS, Row, aggregate, paired_binary, unsafe_outcome
+from .metrics import CONDITIONS, Row, aggregate, delivered_unsafe_outcome, paired_binary, unsafe_outcome
 from .scorer import SCORER_VERSION, ScoreContext, score
 
 __all__ = ["CONDITIONS", "Case", "SPLITS", "THREE_WAY", "fine_tuning_pool", "mark_eval_only", "split_of3", "split_three_way", "verify_splits", "EvalEnv", "EvaluationResult", "Limits", "Row", "SCORER_VERSION", "ScoreContext",
-           "aggregate", "assign_groups", "paired_binary", "plan_llm_calls", "read_cases", "run_evaluation",
+           "aggregate", "assign_groups", "delivered_unsafe_outcome", "paired_binary", "plan_llm_calls", "read_cases", "run_evaluation",
            "run_variant", "score", "split_cases", "split_of", "unsafe_outcome", "vulnerable_cases_from_pins",
            "write_cases", "write_result"]

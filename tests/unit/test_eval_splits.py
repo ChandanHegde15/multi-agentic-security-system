@@ -23,8 +23,9 @@ def test_split_of3_is_pure_and_follows_the_fractions():
     counts = {s: 0 for s in SPLITS}
     for i in range(6000):
         counts[split_of3(f"g{i}")] += 1
-    assert abs(counts["train"] / 6000 - 0.30) < 0.03 and abs(counts["dev"] / 6000 - 0.20) < 0.03
-    assert abs(counts["test"] / 6000 - 0.50) < 0.03
+    assert abs(counts["train"] / 6000 - 0.70) < 0.03 and abs(counts["dev"] / 6000 - 0.15) < 0.03
+    assert abs(counts["test"] / 6000 - 0.15) < 0.03
+    assert THREE_WAY["train"] > THREE_WAY["dev"] and THREE_WAY["train"] > THREE_WAY["test"]     # D-072
     assert {split_of3(f"g{i}", {"train": 0.0, "dev": 0.5, "test": 0.5}) for i in range(500)} == {"dev", "test"}
     assert {split_of3(f"g{i}", {"train": 0.0, "dev": 0.0, "test": 1.0}) for i in range(100)} == {"test"}
     assert split_of3("x", seed=1) in SPLITS

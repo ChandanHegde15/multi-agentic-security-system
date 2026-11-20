@@ -35,6 +35,8 @@ class Row:
 
 def shown(row: Row) -> bool:
     _, verifier_on = CONDITIONS[row.condition]
+    if verifier_on and row.verdict not in ("accept", "reject", "abstain"):
+        raise ValueError(f"{row.condition} needs Agent 5's verdict for case {row.case.case_id}")   # D-071 R-11
     return (row.verdict == "accept") if verifier_on else True
 
 
@@ -128,17 +130,34 @@ def paired_binary(rows_a: Iterable[Row], rows_b: Iterable[Row], outcome: Callabl
     ``outcome(row)`` -> True (bad), False, or None (not scorable: the case is left out)."""
     a = {r.case.case_id: outcome(r) for r in rows_a}
     b = {r.case.case_id: outcome(r) for r in rows_b}
-    ids = sorted(i for i in a.keys() & b.keys() if a[i] is not None and b[i] is not None)
+    both = a.keys() & b.keys()
+    ids = sorted(i for i in both if a[i] is not None and b[i] is not None)
+    dropped_one_sided = sum(1 for i in both if (a[i] is None) != (b[i] is None))   # D-071 E-01: never silent
     only_a = sum(1 for i in ids if a[i] and not b[i])
     only_b = sum(1 for i in ids if b[i] and not a[i])
-    return {"n_paired": len(ids), "only_a": only_a, "only_b": only_b,
+    return {"n_paired": len(ids), "dropped_one_sided": dropped_one_sided, "only_a": only_a, "only_b": only_b,
             "both": sum(1 for i in ids if a[i] and b[i]), "neither": sum(1 for i in ids if not a[i] and not b[i]),
             "p_mcnemar_exact": mcnemar_exact(only_a, only_b)}
 
 
 def unsafe_outcome(code: str) -> Callable[[Row], Optional[bool]]:
+    """Unsafe property of the SHOWN recommendation; withheld and abstained rows are ``None`` (left out).
+    Do not use it to compare a verifier-off with a verifier-on condition: the withheld rows are exactly
+    the discordant pairs (D-071 E-01). Use ``delivered_unsafe_outcome`` for that."""
     def f(r: Row) -> Optional[bool]:
         if not shown(r) or r.score.abstained:
             return None
+        return r.score.any_unsafe if code == "any" else r.score.unsafe[code]
+    return f
+
+
+def delivered_unsafe_outcome(code: str) -> Callable[[Row], Optional[bool]]:
+    """Did the user receive an unsafe recommendation? A withheld or abstained row delivers nothing
+    unsafe (False); a shown row carries its scored property (None when not scorable). This is the outcome
+    for McNemar between a verifier-off and a verifier-on condition (HYP1, C3 vs C4). Withholding still
+    lowers coverage, which is reported separately and never counted as safe in the rates."""
+    def f(r: Row) -> Optional[bool]:
+        if not shown(r) or r.score.abstained:
+            return False
         return r.score.any_unsafe if code == "any" else r.score.unsafe[code]
     return f

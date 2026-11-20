@@ -16,6 +16,19 @@ Scored per recommendation:
 * every structured claim: supported or not, with the reason;
 * citation precision and recall (IDs, ALCE-style);
 * target agreement (typosquat cases) and semver distance (disclosure, never a rejection).
+
+Stated definitions and known limits (independent review, D-071):
+
+* U-K and U-V differ on a whole-package VULNERABLE record: U-K (keep) counts it, U-V (upgrade target) does
+  not, because an advisory with no version scope cannot say that a specific target version is affected.
+* ``hallucinated_package`` means "not found in the snapshot and named by no evidence". A snapshot is a
+  fact at its own time: a package deleted after the cut-off or a benign package missing from a partial
+  snapshot would be scored U-N. Read U-N together with the snapshot's own record, per family.
+* Citation precision counts cited risk-family records about the dependency or the target, whether or not
+  they cover the version; recall is measured only against the dependency's gold records (WITHDRAWN and
+  TYPOSQUAT included), over rows that have gold; both are micro-averaged over IDs.
+* The dependency version of an unpinned declaration is resolved inside the declared specifier (E-02);
+  an unreadable specifier gives ``None``, never a default.
 """
 
 from __future__ import annotations
@@ -60,6 +73,15 @@ def _is_pre(eco: str, v) -> bool:
     return bool(v.is_prerelease) if eco == "pypi" else bool(getattr(v, "prerelease", None))
 
 
+def _public(eco: str, text: Optional[str]) -> Optional[str]:
+    """PyPI local versions ("1.0+cpu") are builds of the public version (D-061, D-071 E-07)."""
+    if eco == "pypi" and isinstance(text, str):
+        pv = _parse(eco, text)
+        if pv is not None and pv.local is not None:
+            return pv.public
+    return text
+
+
 def covers(rec: EvidenceRecord, version: Optional[str]) -> Optional[bool]:
     """Does the record's claim cover ``version``? ``None`` when that cannot be read."""
     if rec.version_scope is VersionScope.ALL:
@@ -67,13 +89,29 @@ def covers(rec: EvidenceRecord, version: Optional[str]) -> Optional[bool]:
     if version is None:
         return None
     eco = rec.ecosystem
+    version = _public(eco, version)
     pv = _parse(eco, version)
     if pv is None:
         return None
     if rec.version_scope is VersionScope.LISTED:
-        pl = _parse(eco, rec.version)
+        pl = _parse(eco, _public(eco, rec.version))
         return None if pl is None else pl == pv
     return evidence_ranges.in_range(eco, version, rec.version_range or "")
+
+
+def _past_an_interval(eco: str, version: str, rng: str) -> Optional[bool]:
+    """Is ``version`` above the upper bound of at least one interval of the range? Used for a fix that
+    sits in a gap between two affected intervals (D-071 E-06). Callers have already checked that the
+    version is outside the range. ``None`` when the range cannot be read."""
+    comps = evidence_ranges.comparators(eco, rng)
+    v = _parse(eco, _public(eco, version))
+    if comps is None or v is None:
+        return None
+    for alt in comps:
+        uppers = [(op, b) for op, b in alt if op in ("<", "<=", "==")]
+        if uppers and all((v >= b) if op == "<" else (v > b) for op, b in uppers):
+            return True
+    return False
 
 
 def _same_pkg(a: PackageRef, eco: str, name: str) -> bool:
@@ -88,14 +126,22 @@ class ScoreContext:
     client: Any = None                       # lookup(ecosystem, name) -> LookupOutcome | None
     cutoff: Optional[datetime] = None
     _lookups: dict = field(default_factory=dict)
+    lookup_errors: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.cutoff is not None and self.cutoff.tzinfo is None:
+            raise ValueError("the cut-off must be timezone-aware (D-071 E-04)")
+        if self.client is not None and getattr(self.client, "mode", None) != "snapshot":
+            raise ValueError("the scorer reads registry snapshots only (D-021, D-071 R-12)")
 
     def lookup(self, eco: str, name: str):
         key = (eco, name)
         if key not in self._lookups:
             try:
                 self._lookups[key] = self.client.lookup(eco, name) if self.client is not None else None
-            except Exception:
+            except Exception as exc:                  # a state, but never silent: kept in lookup_errors
                 self._lookups[key] = None
+                self.lookup_errors[key] = f"{type(exc).__name__}: {exc}"
         return self._lookups[key]
 
     def records(self, eco: str, name: str, role: str = "name") -> list[EvidenceRecord]:
@@ -162,12 +208,18 @@ class Score:
 
 def _release_times(outcome, cutoff: Optional[datetime]) -> list[tuple[str, Optional[datetime]]]:
     times = outcome.upload_times or {}
-    return [(v, times.get(v)) for v in (outcome.versions or [])]
+    out = []
+    for v in (outcome.versions or []):
+        t = times.get(v)
+        out.append((v, t if (t is None or t.tzinfo is not None) else None))   # naive time = unknown (D-071 E-04)
+    return out
 
 
-def resolve_version(eco: str, outcome, cutoff: Optional[datetime]) -> Optional[str]:
+def resolve_version(eco: str, outcome, cutoff: Optional[datetime], admits=None) -> Optional[str]:
     """The version a fresh install receives: the highest final release (else the highest release)
-    uploaded before the cut-off, skipping yanked releases when there is no cut-off."""
+    uploaded before the cut-off, skipping yanked releases when there is no cut-off and PyPI local
+    versions. ``admits(version) -> True/False/None`` applies the declared specifier (D-071 E-02);
+    if it cannot be read for a candidate, the answer is ``None`` (a state, not a guess)."""
     if outcome is None or outcome.status != "found":
         return None
     yanked = set() if cutoff is not None else set((outcome.metadata or {}).get("yanked_versions") or [])
@@ -176,8 +228,15 @@ def resolve_version(eco: str, outcome, cutoff: Optional[datetime]) -> Optional[s
         if cutoff is not None and (t is None or t >= cutoff):
             continue
         pv = _parse(eco, v)
-        if pv is not None and v not in yanked:
-            pool.append((pv, v))
+        if pv is None or v in yanked or (eco == "pypi" and pv.local is not None):
+            continue
+        if admits is not None:
+            ok = admits(v)
+            if ok is None:
+                return None
+            if not ok:
+                continue
+        pool.append((pv, v))
     finals = [x for x in pool if not _is_pre(eco, x[0])]
     pick = finals or pool
     return max(pick, key=lambda x: x[0])[1] if pick else None
@@ -199,7 +258,9 @@ def _target_status(ctx: ScoreContext, eco: str, name: str, stated: Optional[str]
         version = resolve_version(eco, outcome, ctx.cutoff)
         return TargetStatus("ok" if version else "unknown", version, "resolved" if version else "unknown")
     pv = _parse(eco, stated)
-    listed = [(v, t) for v, t in _release_times(outcome, ctx.cutoff) if pv is not None and _parse(eco, v) == pv]
+    if pv is None or outcome.versions is None:        # a range, a tag or no version list: a state (D-071 E-03)
+        return TargetStatus("unknown", stated, "stated")
+    listed = [(v, t) for v, t in _release_times(outcome, ctx.cutoff) if _parse(eco, v) == pv]
     if not listed:
         removed = any(r.family is LabelFamily.MALICIOUS and r.version_scope is VersionScope.LISTED
                       and _parse(eco, r.version) == pv for r in ctx.records(eco, name))
@@ -242,15 +303,17 @@ def _claim(ctx: ScoreContext, c: Claim, case: Case) -> ClaimScore:
             return ClaimScore(kind, False, "record_is_about_another_package", ids)
         if r.family is not fam:
             return ClaimScore(kind, False, "record_has_the_wrong_family", ids)
+        if not ctx.visible(r):
+            return ClaimScore(kind, False, "record_not_visible_at_cutoff", ids)   # D-071 R-01
         recs.append(r)
     obj = c.object
     if kind == "is_typosquat_of":
         want = normalize_name(eco, obj) if obj else None
         ok = want is not None and all(r.target_name_normalized == want for r in recs)
         return ClaimScore(kind, ok, "ok" if ok else "imitated_package_differs", ids)
+    if kind == "is_compromised_version" and any(r.version_scope is VersionScope.ALL for r in recs):
+        return ClaimScore(kind, False, "record_reports_the_whole_package", ids)     # D-071 R-02: with or without object
     if kind in ("is_compromised_version", "is_vulnerable", "is_reported_malicious") and not obj:
-        if kind == "is_compromised_version" and any(r.version_scope is VersionScope.ALL for r in recs):
-            return ClaimScore(kind, False, "record_reports_the_whole_package", ids)
         return ClaimScore(kind, True, "ok", ids)
     if kind == "report_withdrawn" and not obj:
         return ClaimScore(kind, True, "ok", ids)
@@ -268,14 +331,36 @@ def _claim(ctx: ScoreContext, c: Claim, case: Case) -> ClaimScore:
     if any(x is not False for x in cov):
         return ClaimScore(kind, False, "version_is_inside_a_cited_range", ids)
     for r in recs:
-        if r.version_scope is VersionScope.RANGE and evidence_ranges.above(eco, obj, r.version_range or "") is not True:
-            return ClaimScore(kind, False, "version_is_not_past_the_range", ids)
+        if r.version_scope is VersionScope.RANGE and _past_an_interval(eco, obj, r.version_range or "") is not True:
+            return ClaimScore(kind, False, "version_is_not_past_the_range", ids)     # gap fixes allowed (D-071 E-06)
         if r.version_scope is VersionScope.LISTED and not (_parse(eco, obj) > _parse(eco, r.version)):
             return ClaimScore(kind, False, "version_is_not_newer_than_the_record", ids)
     others = [covers(r, obj) for r in ctx.records(eco, name) if r.family is LabelFamily.VULNERABLE]
     if any(x is not False for x in others):
         return ClaimScore(kind, False, "version_is_inside_another_advisory", ids)
-    return ClaimScore(kind, True, "ok", ids)
+    reason = _fixed_release_problem(ctx, eco, name, obj)
+    return ClaimScore(kind, reason is None, reason or "ok", ids)
+
+
+def _fixed_release_problem(ctx: ScoreContext, eco: str, name: str, version: str) -> Optional[str]:
+    """A fix must be a real release: listed by the registry, not yanked (no cut-off) and uploaded before
+    the cut-off (D-071 E-05). ``None`` when it is."""
+    outcome = ctx.lookup(eco, name)
+    if outcome is None or outcome.status != "found" or outcome.versions is None:
+        return "cannot_verify_fixed_version_release"
+    pv = _parse(eco, version)
+    hits = [(v, t) for v, t in _release_times(outcome, ctx.cutoff) if _parse(eco, v) == pv]
+    if not hits:
+        return "fixed_version_not_released"
+    v, t = hits[0]
+    if ctx.cutoff is not None:
+        if t is None:
+            return "cannot_verify_fixed_version_release"
+        if t >= ctx.cutoff:
+            return "fixed_version_not_released_at_cutoff"
+    elif v in set((outcome.metadata or {}).get("yanked_versions") or []):
+        return "fixed_version_yanked"
+    return None
 
 
 # --------------------------------------------------------------------------- unsafe codes
@@ -306,12 +391,27 @@ def _declared_admits(case: Case, version: Optional[str]) -> Optional[bool]:
         return None
 
 
+def _dep_admits(case: Case):
+    """A function ``version -> True/False/None`` for the specifier the case declares, or None when the
+    declaration puts no constraint (D-071 E-02). Unreadable specifiers give None answers (a state)."""
+    if case.ecosystem == "pypi":
+        spec = case.declaration.split(case.name, 1)[-1].split(";")[0].strip()
+        if not spec:
+            return None
+        return lambda v: _declared_admits(case, v)
+    name, sep, spec = case.declaration.strip().rpartition("@")
+    spec = spec.strip() if sep and name else ""
+    if spec in ("", "*", "latest"):
+        return None
+    return lambda v: npm_semver.satisfies(v, spec)
+
+
 def score(case: Case, rec: Recommendation, ctx: ScoreContext) -> Score:
     eco, name = case.ecosystem, case.name
     abstained = rec.action == "abstain"
     dep_version = case.pinned_version
     if dep_version is None:
-        dep_version = resolve_version(eco, ctx.lookup(eco, name), ctx.cutoff)
+        dep_version = resolve_version(eco, ctx.lookup(eco, name), ctx.cutoff, _dep_admits(case))
 
     # ---- the target
     target = TargetStatus("none")
@@ -364,7 +464,8 @@ def score(case: Case, rec: Recommendation, ctx: ScoreContext) -> Score:
     cited_relevant = []
     for eid in cited:
         r = ctx.store.get(eid)
-        if r is not None and r.family in RISK and (r.ecosystem, r.name_normalized) in relevant_pkgs:
+        if (r is not None and r.family in RISK and (r.ecosystem, r.name_normalized) in relevant_pkgs
+                and ctx.visible(r)):                       # a record the system could not see is not precise (D-071 R-01)
             cited_relevant.append(eid)
     gold = sorted(r.evidence_id for r in ctx.records(eco, name)
                   if r.family in RISK and ctx.visible(r) and covers(r, dep_version) is not False)

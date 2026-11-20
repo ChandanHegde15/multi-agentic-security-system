@@ -62,7 +62,7 @@ def test_bootstrap_is_deterministic_and_clusters_widen_the_interval():
     p2, lo2, hi2 = stats.bootstrap_ci(values, clustered, n_boot=500)
     assert p1 == p2 == 0.5 and stats.bootstrap_ci(values, independent, n_boot=500) == (p1, lo1, hi1)
     assert (hi2 - lo2) > (hi1 - lo1)
-    assert stats.bootstrap_ci([], [])[0] is None and stats.bootstrap_ci([1.0], ["g"]) == (1.0, 1.0, 1.0)
+    assert stats.bootstrap_ci([], [])[0] is None and stats.bootstrap_ci([1.0], ["g"]) == (1.0, None, None)
     with pytest.raises(ValueError):
         stats.bootstrap_ci([1.0], [])
 

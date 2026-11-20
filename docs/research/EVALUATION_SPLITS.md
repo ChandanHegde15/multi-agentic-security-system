@@ -1,6 +1,6 @@
 # Data splits, validation and the fine-tuning plan
 
-Status: design fixed by D-070 (2026-11-19). **No case list exists yet, no split has been built and nothing has been trained.** This document says what each set is for, what may never cross between sets, and what a later fine-tuning run may use. It extends `RESEARCH_METHODOLOGY.md` (splits fixed before modelling, grouped, assigned by hash) and `FOUNDATION_REVIEW.md` §3 (LibHalluBench).
+Status: design fixed by D-070 (2026-11-19); fractions changed to 70 / 15 / 15 by D-072 (2026-11-20). **Case lists `cases_v2` exist (counts in the run log); nothing has been scored on the held-out side and nothing has been trained.** This document says what each set is for, what may never cross between sets, and what a later fine-tuning run may use. It extends `RESEARCH_METHODOLOGY.md` (splits fixed before modelling, grouped, assigned by hash) and `FOUNDATION_REVIEW.md` §3 (LibHalluBench).
 
 ## 1. The three sets
 
@@ -15,7 +15,7 @@ A **pilot** is a fixed subset of dev (the first N cases by `case_id`, N set in t
 ## 2. Rules that hold for every set
 
 1. **Fixed before modelling.** Fractions, seed and forced assignments are recorded in the protocol and hashed before any model run. A split is never changed after a result has been seen.
-2. **Assigned by hash, grouped.** A case's side is a pure function of its group key and the seed `20261114` (no random state). A group is a connected component over the package, the package a typosquat imitates, and the repository that pins it, so all cases of one package, and all pins of one repository, share a side (D-036, D-044 item 9). Default fractions: **train 30 %, dev 20 %, test 50 %**.
+2. **Assigned by hash, grouped.** A case's side is a pure function of its group key and the seed `20261114` (no random state). A group is a connected component over the package, the package a typosquat imitates, and the repository that pins it, so all cases of one package, and all pins of one repository, share a side (D-036, D-044 item 9). Default fractions: **train 70 %, dev 15 %, test 15 %** (D-072: the training side is the largest; D-070 had 30 / 20 / 50). The cases forced to test (LibHalluBench-derived and the shared names) come on top of the test fraction, so the test side is larger than 15 % of the cases.
 3. **Held-out wins.** Where a source forces a side and the cases of one group disagree, the order is test, then dev, then train. A test case can therefore never be pulled into dev or train; the reverse (a dev case ending up in test) only shrinks dev.
 4. **LibHalluBench is evaluation-only** (D-013): every case derived from it is forced to test. The 34 names it shares with the malicious and typosquat lists are forced to test in every family, so they appear in no dev or train example, prompt example or rule tuning (`FOUNDATION_REVIEW.md` §3).
 5. **Evidence dates.** A training example may use only evidence records published before the *earliest* cut-off of the held-out runs; an undated or later record disqualifies the example. A model must not learn from what a held-out run treats as unknown.

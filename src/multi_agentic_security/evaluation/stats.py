@@ -20,7 +20,9 @@ from typing import Optional, Sequence
 
 def wilson(k: int, n: int, z: float = 1.959964) -> tuple[Optional[float], Optional[float], Optional[float]]:
     """(proportion, low, high); all None when n == 0."""
-    if n <= 0:
+    if n < 0 or k < 0 or k > n:
+        raise ValueError("wilson needs 0 <= k <= n")
+    if n == 0:
         return None, None, None
     p = k / n
     d = 1 + z * z / n
@@ -37,8 +39,10 @@ def _by_group(values: Sequence[float], groups: Sequence[str]) -> list[tuple[floa
 
 
 def bootstrap_ci(values: Sequence[float], groups: Sequence[str], *, n_boot: int = 2000, seed: int = 20261114,
-                 alpha: float = 0.05) -> tuple[Optional[float], Optional[float], Optional[float]]:
-    """Mean with a percentile interval, resampling whole groups with replacement."""
+                 alpha: float = 0.05, min_groups: int = 2) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """Mean with a percentile interval, resampling whole groups with replacement. With fewer than
+    ``min_groups`` groups there is no interval (None bounds, never a zero-width one); the protocol fixes
+    the minimum (D-071 R-06)."""
     if len(values) != len(groups):
         raise ValueError("values and groups must have the same length")
     if not values:
@@ -47,17 +51,26 @@ def bootstrap_ci(values: Sequence[float], groups: Sequence[str], *, n_boot: int 
     rng = random.Random(seed)
     total_n = sum(n for _, n in cells)
     point = sum(s for s, _ in cells) / total_n
-    if len(cells) == 1:
-        return point, point, point
+    if len(cells) < max(2, min_groups):
+        return point, None, None
     means = []
     for _ in range(n_boot):
         pick = [cells[rng.randrange(len(cells))] for _ in cells]
         n = sum(c[1] for c in pick)
         means.append(sum(c[0] for c in pick) / n)
     means.sort()
-    lo = means[int((alpha / 2) * (n_boot - 1))]
-    hi = means[int((1 - alpha / 2) * (n_boot - 1))]
+    lo = means[max(0, math.floor((alpha / 2) * n_boot))]                     # nearest rank (D-071 N-02)
+    hi = means[min(n_boot - 1, math.ceil((1 - alpha / 2) * n_boot) - 1)]
     return point, lo, hi
+
+
+def paired_diff_ci_by_key(a: dict, b: dict, groups: dict, *, n_boot: int = 2000, seed: int = 20261114,
+                          alpha: float = 0.05, min_groups: int = 2):
+    """Mean of (a - b) over the keys present in both mappings, with a grouped bootstrap interval. Pairs by
+    case ID, never by position (D-071 R-07); keys missing from either side or from ``groups`` are left out."""
+    keys = sorted(k for k in a.keys() & b.keys() if k in groups)
+    return bootstrap_ci([a[k] - b[k] for k in keys], [groups[k] for k in keys], n_boot=n_boot, seed=seed,
+                        alpha=alpha, min_groups=min_groups)
 
 
 def paired_diff_ci(a: Sequence[float], b: Sequence[float], groups: Sequence[str], *, n_boot: int = 2000,
@@ -70,6 +83,8 @@ def paired_diff_ci(a: Sequence[float], b: Sequence[float], groups: Sequence[str]
 
 def mcnemar_exact(only_a: int, only_b: int) -> float:
     """Two-sided exact McNemar p-value from the two discordant counts (binomial, p = 0.5)."""
+    if only_a < 0 or only_b < 0:
+        raise ValueError("discordant counts must be >= 0")
     n = only_a + only_b
     if n == 0:
         return 1.0
@@ -80,6 +95,8 @@ def mcnemar_exact(only_a: int, only_b: int) -> float:
 
 def holm(pvalues: dict[str, float]) -> dict[str, float]:
     """Holm-adjusted p-values (monotone, capped at 1)."""
+    if any(isinstance(p, float) and math.isnan(p) for p in pvalues.values()):
+        raise ValueError("holm cannot adjust a NaN p-value")
     items = sorted(pvalues.items(), key=lambda kv: kv[1])
     m = len(items)
     out, running = {}, 0.0

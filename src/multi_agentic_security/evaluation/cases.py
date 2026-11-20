@@ -89,7 +89,9 @@ def case_to_files(case: Case) -> list[UploadedFile]:
 # --------------------------------------------------------------------------- splits
 
 def split_of(group: str, *, test_fraction: float = 0.5, seed: int = SPLIT_SEED) -> str:
-    """'dev' or 'test', a pure function of the group key and the seed."""
+    """'dev' or 'test', a pure function of the group key and the seed. DEPRECATED two-way split (D-036):
+    it is NOT the frozen split; ``split_three_way`` (D-070) hashes differently, and a group that lands in
+    'test' here can land in train or dev there (D-071 R-09)."""
     h = int(hashlib.sha256(f"{seed}\x1f{group}".encode("utf-8")).hexdigest()[:12], 16) / float(16 ** 12)
     return "test" if h < test_fraction else "dev"
 
@@ -133,7 +135,9 @@ def split_cases(cases: Iterable[Case], *, test_fraction: float = 0.5, seed: int 
 # --------------------------------------------------------------------------- three-way split (D-070)
 
 SPLITS = ("train", "dev", "test")           # dev is the validation set
-THREE_WAY = {"train": 0.30, "dev": 0.20, "test": 0.50}
+# D-072 (supersedes the 30 / 20 / 50 of D-070): the training side is the largest. Forced-test cases
+# (LibHalluBench, the shared names) come on top of the test fraction.
+THREE_WAY = {"train": 0.70, "dev": 0.15, "test": 0.15}
 _PRECEDENCE = ("test", "dev", "train")      # when forced hints inside one group disagree, the earlier wins
 
 
@@ -171,12 +175,34 @@ def mark_eval_only(cases: Iterable[Case], names: Iterable[str]) -> list[Case]:
     """Force the test side for every case whose package name is in ``names`` (LibHalluBench-derived names and
     the names it shares with the malicious and typosquat lists, FOUNDATION_REVIEW section 3)."""
     wanted = {(e, normalize_name(e, n)) for e in ("pypi", "npm") for n in names}
-    return [Case(**{**c.__dict__, "split_hint": "test"}) if (c.ecosystem, c.name) in wanted else c for c in cases]
+
+    def hit(c: Case) -> bool:          # the case's own name or its expected target (D-071 R-10)
+        return (c.ecosystem, c.name) in wanted or (
+            c.expected_target is not None and (c.ecosystem, normalize_name(c.ecosystem, c.expected_target)) in wanted)
+    return [Case(**{**c.__dict__, "split_hint": "test"}) if hit(c) else c for c in cases]
 
 
-def verify_splits(splits: dict[str, list[Case]]) -> list[str]:
-    """Problems found in a split (empty list = clean): shared cases, shared groups, broken forced sides."""
-    problems: list[str] = []
+def verify_splits(splits: dict[str, list[Case]], *, check_seed: bool = False, fractions: dict = THREE_WAY,
+                  seed: int = SPLIT_SEED) -> list[str]:
+    """Problems found in a split (empty list = clean): unknown sides, stale group keys (recomputed here from
+    the shared packages, targets and repositories), shared cases, shared groups, broken forced sides and,
+    with ``check_seed``, any case whose side differs from ``split_three_way`` on the same cases (D-071 R-08)."""
+    problems: list[str] = [f"unknown side {s!r}" for s in splits if s not in SPLITS]
+    every = [c for side in SPLITS for c in splits.get(side, [])]
+    fresh = {c.case_id: c.group for c in assign_groups(every)}
+    stored: dict[str, set] = {}
+    for c in every:
+        stored.setdefault(fresh[c.case_id], set()).add(c.group)
+    for key, names in sorted(stored.items()):
+        if len(names) > 1:          # cases that share a package, target or repository must share one group key
+            problems.append(f"group {key}: cases share a package, target or repository but carry different "
+                            f"stored group keys {sorted(names)}")
+    if check_seed:
+        again = {c.case_id: s for s, cs in split_three_way(every, fractions, seed).items() for c in cs}
+        for side in SPLITS:
+            for c in splits.get(side, []):
+                if again.get(c.case_id) != side:
+                    problems.append(f"case {c.case_id} is in {side} but the seed puts it in {again.get(c.case_id)}")
     seen_id: dict[str, str] = {}
     seen_group: dict[str, str] = {}
     for side in SPLITS:
