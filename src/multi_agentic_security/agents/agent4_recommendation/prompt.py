@@ -20,7 +20,7 @@ from multi_agentic_security.contracts.evidence import EvidenceRecord
 from .llm import LLMOptions, LLMRequest
 from .packet import Packet
 
-PROMPT_VERSION = "a4-prompt/0.1"
+PROMPT_VERSION = "a4-prompt/0.1"          # the default text; others are in PROMPTS (D-076)
 MAX_TEXT = 200
 
 # Finding detail keys passed to LLM-G (structured values only, no explanations).
@@ -50,6 +50,27 @@ is_nonexistent, is_vulnerable (object: a version or null), fixed_in (object: the
 no_evidence_found. A claim is a factual statement that will be checked. Cite in evidence_ids only evidence_id values
 that appear in the input's "evidence" list; is_nonexistent and no_evidence_found cite none.
 """
+
+# a4-prompt/0.2 (D-076): the 0.1 text with the action and claim rules spelled out where models erred on the
+# development pilot. It explains the output contract only; it names no package, case or answer. Chosen on dev only.
+SYSTEM_02 = SYSTEM.replace(
+    """Actions: "replace" names another package as target; "upgrade" and "downgrade" keep the same package and need a
+target version; every other action has target null.""",
+    """Actions: "replace" names a different package as target, never the dependency itself; to stay on the same package
+use "upgrade" or "downgrade" with a target version; every other action has target null. Never recommend as target a
+package that the evidence reports as malicious or lists as a typosquat.""").replace(
+    """A claim is a factual statement that will be checked.""",
+    """A claim is a factual statement that will be checked:
+- a claim's subject is the package the claim is about, and a cited record must be about that same package (its
+  "package" field); a record of family "benign_reference" is a reference list, not evidence of risk;
+- is_reported_malicious cites records of family "malicious"; is_compromised_version needs a "malicious" record whose
+  version_scope is "listed" for that version (a report with scope "all" concerns the whole package: use
+  is_reported_malicious); is_typosquat_of cites "typosquat" records; is_vulnerable and fixed_in cite "vulnerable"
+  records; report_withdrawn cites "withdrawn" records;
+- is_nonexistent only when the registry status is "not_found" and no evidence record names the package; a package
+  that was removed after a malicious report is is_reported_malicious, not is_nonexistent.""")
+assert SYSTEM_02 != SYSTEM and "never the dependency itself" in SYSTEM_02 and "removed after a malicious report" in SYSTEM_02
+PROMPTS = {"a4-prompt/0.1": SYSTEM, "a4-prompt/0.2": SYSTEM_02}
 
 VARIANT_NOTE = {
     "LLM-G": "The input contains the evidence records known for this dependency. Base every claim on them.",
@@ -103,14 +124,16 @@ def prompt_input(p: Packet, options: LLMOptions) -> dict[str, Any]:
 def build_request(p: Packet, options: LLMOptions) -> LLMRequest:
     if p.variant not in VARIANT_NOTE:
         raise ValueError(f"variant {p.variant!r} has no prompt")
-    system = SYSTEM + "\n" + VARIANT_NOTE[p.variant]
+    if options.prompt_version not in PROMPTS:
+        raise ValueError(f"unknown prompt version {options.prompt_version!r}")
+    system = PROMPTS[options.prompt_version] + "\n" + VARIANT_NOTE[p.variant]
     user = json.dumps(prompt_input(p, options), sort_keys=True, ensure_ascii=True, default=str)
     return LLMRequest(system=system, messages=(("user", user),), temperature=options.temperature, seed=options.seed,
                       max_output_tokens=options.max_output_tokens, timeout_s=options.timeout_s)
 
 
-def prompt_version(variant: str) -> str:
-    return f"{PROMPT_VERSION}+{variant}"
+def prompt_version(variant: str, options: Optional[LLMOptions] = None) -> str:
+    return f"{(options.prompt_version if options is not None else PROMPT_VERSION)}+{variant}"
 
 
 def repair_message(error: str) -> str:

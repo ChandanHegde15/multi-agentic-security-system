@@ -104,7 +104,8 @@ def write_result(folder: Path, result: EvaluationResult) -> dict:
         "case_id": r.case.case_id, "family": r.case.family, "condition": r.condition, "verdict": r.verdict,
         "action": r.score.action, "unsafe": r.score.unsafe, "target": r.score.target.__dict__,
         "claims": [c.__dict__ for c in r.score.claims], "cited": r.score.cited_ids,
-        "gold": r.score.gold_ids, "generation_status": r.score.generation_status}, sort_keys=True) + "\n"
+        "gold": r.score.gold_ids, "generation_status": r.score.generation_status,
+        "action_valid": r.score.action_valid}, sort_keys=True) + "\n"
         for r in sorted(result.rows, key=lambda r: (r.condition, r.case.case_id)))
     files = {"rows.jsonl": rows_text,
              "errors.json": json.dumps(result.errors, indent=1, sort_keys=True),

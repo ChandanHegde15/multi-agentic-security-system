@@ -292,7 +292,7 @@ def run_pipeline(cfg: PipelineConfig) -> RunResult:
                    "llm": f"{cfg.llm.provider}/{cfg.llm.model}" if cfg.llm is not None else None,
                    "llm_options": {k: getattr(cfg.llm_options, k) for k in
                                    ("temperature", "seed", "max_output_tokens", "max_schema_retries",
-                                    "max_transport_retries")} if cfg.llm is not None else None},
+                                    "max_transport_retries", "prompt_version")} if cfg.llm is not None else None},
         "stage_versions": {s: state[s].get("stage_version") for s in STAGES if s in state},
         "resumed_stages": state.get("resumed", []), "cost": _cost(cfg),
         "evidence_store": store, "pipeline_failures": [f.model_dump(mode="json") for f in failures]}

@@ -399,3 +399,134 @@ Suggested set (D-038: models from different families): gpt-oss-20b on Groq (Open
 - **R0 coverage:** 137 of 251 malicious cases abstain without a cut-off, because version-specific reports state no fixed version (D-062); R0 never recommends `remove` for a compromised pinned version.
 - **Vulnerable family:** 3 cases in 1 group; nothing can be concluded.
 - **Scorer audit by hand:** 30 scored recommendations (15 per run: 3 benign, 5 malicious, 5 typosquat, 2 vulnerable) read against the raw evidence records and registry facts: the unsafe flags, target status and claim verdicts agreed in 30 of 30. Not checked by hand: the exact counts of cited and gold identifiers beyond plausibility. One by-design behaviour seen: where the dependency version cannot be resolved, a package's version-specific records are all counted as possibly relevant in the gold list.
+
+### PLAN-001 batch 2 and RUN-005b (2026-11-21; DEV, descriptive)
+
+- **Batch 2 lookups (owner approval, 31 names, metadata only):** the 25 distinct `replace` targets of R0 on the dev cases and the 6 targets recommended by the two models on pilot day 1. Recorded into `research/datasets/registry_snapshots/dev_batch2_2026-11-20/` (30 found, 1 not found, no errors; `RUN_RECORD.json` SHA-256 `58032f75399ddf21b3868f46dfa8c7b72806a7b200f44bb4af6e712cdc889d87`; plan file SHA-256 `9f2a869138f95aca317d6e23856e191d07ea8eff906f2b566a09fa821c29dd48`).
+- **RUN-005b:** RUN-005 repeated offline with the batch 2 folder added (`research/datasets/runs/run005b_2026-11-21/`; `metrics.json` SHA-256: no cut-off `3ef5de7b…23bf`, 2025-09-01 `911e4475…2ca2`, identical to RUN-005 at that cut-off). The test side was not read.
+- **Result without a cut-off:** the 43 needs-review verdicts of RUN-005 (targets without a snapshot) are now all verified; **0 rejected, 0 needs review, 0 unsafe by the scorer in all 447 dev cases** (benign 104, malicious 251 with 137 abstentions, typosquat 89, vulnerable 3). At 2025-09-01 nothing changed (5 needs review, pins after the cut-off).
+- **Reading:** with all evidence visible and every target recorded, R0 is clean on dev; the cut-off run is where the hindsight effects appear (see RUN-005). Dev numbers only.
+
+## DEV PILOT, day 1 of 2 — both Groq models, LLM-U and LLM-G, scored from the cache (2026-11-20 to 2026-11-21; DEV numbers, partial, descriptive)
+
+- **What ran:** pilot cases only (the stratified first 100 of dev), no cut-off, prompt `a4-prompt/0.1` unchanged, temperature 0, 2,048-token output limit, 12 s spacing, response cache and a call budget. Real calls on 2026-11-20 (UTC): 146 for `openai/gpt-oss-20b` and 146 for `qwen/qwen3.8-27b` (limit 150 per model per day). Scoring was then done **from the cache only** (a stub client raised on any miss; no call was possible). R0 was run on the same cases for comparison. The test side was not read.
+- **Coverage (partial by construction, the pilot is ordered by case id):** gpt-oss 64 cases (23 benign, 41 malicious); Qwen 69 cases (23 benign, 46 malicious). No typosquat or vulnerable case has been generated yet (day 2). Output: `research/datasets/runs/pilot_day1_2026-11-21/{openai_gpt-oss-20b,qwen_qwen3.8-27b}/` (`metrics.json` SHA-256 starts `63013cecdfea` and `544e0b0a2294`). Registry data: the four dev snapshot folders.
+- **Replay fidelity:** gpt-oss had 3 cache misses (answers that stopped at the token limit are not cached, so the replay of such a repair retry misses); one benign LLM-G case therefore shows a recorded generation failure on replay. Qwen had 0 misses.
+- **One generation failure in the live run, identical for both models:** `case-mali-0027aa9e6f0a` under LLM-G (`llm_error`). Its request is about 6,900 estimated tokens against a limit of 8,000 tokens per minute; the provider's error body is not recorded, so the cause is a likely cause, not confirmed. The planner now reports such a case as infeasible (D-071, B-1 to B-4).
+
+| Model | Cond. | Family | Cases | Actions | Unsafe (scorer) | Unsupported claims |
+|---|---|---|---|---|---|---|
+| gpt-oss | C1 R0 | malicious | 41 | abstain 21, remove 20 | 0 / 20 | 0 / 41 |
+| gpt-oss | C2 LLM-U | malicious | 41 | investigate 20, remove 18, replace 3 | 0 / 41 | 74 / 74 |
+| gpt-oss | C3 LLM-G | malicious | 41 | remove 38, replace 3 | 1 / 41 | 9 / 82 |
+| gpt-oss | C4 LLM-G + verifier | malicious | 41 (33 shown) | remove 33 | 0 / 33 | 0 / 60 |
+| Qwen | C2 LLM-U | malicious | 46 | investigate 22, remove 23, replace 1 | 0 / 46 | 77 / 77 |
+| Qwen | C3 LLM-G | malicious | 46 | remove 43, replace 3 | 0 / 46 | 43 / 110 |
+| Qwen | C4 LLM-G + verifier | malicious | 46 (5 shown) | remove 5 | 0 / 5 | 0 / 5 |
+| both | C2, C3, C5 | benign | 23 | gpt-oss C3: keep 20; Qwen C3: keep 23; R0: keep 23 | 0 | 0 to 0 / 11 |
+
+- **LLM-U's 100 % unsupported claims are by construction:** an ungrounded model is given no evidence IDs, so claims that need a citation (`no_citation`) cannot be supported. It is a baseline for the grounding effect, not a defect.
+- **Verifier effect (C3 to C4):** gpt-oss: 8 of 41 malicious recommendations rejected, 1 unsafe recommendation removed. Qwen: 41 of 46 rejected, 0 unsafe removed (Qwen had none).
+- **Every rejection classified (49 on day 1):** all are **correct verifier decisions**; R0 defects 0, Agent 5 defects 0. Causes: (a) `is_nonexistent` claimed for packages that evidence names as malicious (removed, not invented): 40 Qwen and 4 gpt-oss claims; the scorer and Agent 5 agree this is unsupported; the recommended action (`remove`) was usually right, the claim vocabulary was misused; (b) `is_typosquat_of` citing a record about another package (3 Qwen, 5 gpt-oss claims): in the one case read in full, the model cited the popular-list record of the target as evidence for the typosquat.
+- **McNemar (exact), dev pilot, malicious:** C1 vs C3 on unsafe: gpt-oss 20 pairs, 0 / 1 discordant, p = 1.0 (21 cases dropped because R0 abstained); Qwen 23 pairs, 0 discordant. C3 vs C4 on delivered unsafe: gpt-oss 1 / 0 discordant, p = 1.0. **Too few unsafe events to conclude anything;** no claim is made.
+- **Limits:** day 1 only, benign and malicious cases only, one run per model and variant, no seeds, partial pilot, dev numbers. Typosquat and vulnerable families, and C1 against LLM on those, wait for day 2.
+
+## DEV PILOT with a local model: Llama 3.2 3B, LLM-U and LLM-G (2026-11-21; DEV numbers, descriptive)
+
+- **Model and setup (D-074):** `llama3.2:3b` (Meta Llama 3.2, 3.2 B parameters, Q4_K_M 4-bit, Ollama library build, image ID `a80c4f17acd5`), served locally by Ollama 0.40.16 on a GTX 1650 (4 GB) with part of the model on the CPU; no key, no network except the loopback server. Prompt `a4-prompt/0.1` unchanged, temperature 0, 2,048-token output limit, 8,192-token context window, no seed, 300 s timeout, response cache. All 100 pilot cases, both variants: 200 generations in about 19 minutes (212 real model calls, including repairs). No cut-off; snapshots only (four dev folders). The test side was not read.
+- **Generation outcome:** 195 of 200 ok. Failures (recorded, not hidden): 4 `schema_violation` (malformed JSON that survived the two repairs; 3 LLM-U, 1 LLM-G) and 1 `llm_error` for LLM-G on `case-mali-0027aa9e6f0a`, the same case that failed for both Groq models (its request exceeds the context window; code not stored). The five cases are all malicious; scoring uses the 95 cases whose two variants both succeeded: benign 23, malicious 49, typosquat 20, vulnerable 3.
+- **Scoring:** from the cache only (stub client, 194 hits, 0 misses). Output `research/datasets/runs/pilot_local_2026-11-21/llama3.2_3b/` (`metrics.json` SHA-256 `fa34332256763224f6e70fa85342f5b6ea2904c2b3f23491cd70211186d88284`). Targets recommended: 48 distinct names, all already in recorded snapshots (no lookup batch needed).
+
+| Cond. | Family | Cases | Actions | Unsafe (scorer, full evidence) | Verdicts (C4) |
+|---|---|---|---|---|---|
+| C1 R0 | malicious / typosquat / vulnerable / benign | 49 / 20 / 3 / 23 | remove 23, abstain 26 / replace 20 / upgrade 3 / keep 23 | 0 in all | all verified |
+| C2 LLM-U | malicious | 49 | abstain 32, investigate 16, replace 1 | 0 / 17 | |
+| C3 LLM-G | malicious | 49 | replace 27, abstain 16, investigate 3, remove 3 | **24 / 31** (all U-M: replaced by a package that evidence lists as malicious) | |
+| C3 LLM-G | typosquat | 20 | replace 15, abstain 2, investigate 2, remove 1 | **13 / 18** (U-T, 3 also U-M) | |
+| C3 LLM-G | vulnerable | 3 | abstain 1, downgrade 1, upgrade 1 | 1 / 2 (U-V) | |
+| C3 LLM-G | benign | 23 | investigate 19, keep 1, upgrade 2, abstain 1 | 0 / 22 | |
+| C4 LLM-G + verifier | malicious | 49 | 18 shown (abstain 16, remove 2) | 0 / 2 | accept 18, reject 31 |
+| C4 | typosquat | 20 | 2 shown (abstain) | none shown | accept 2, reject 18 |
+| C4 | benign / vulnerable | 23 / 3 | 5 shown / 0 shown | 0 | reject 18 / reject 3 |
+
+- **Verifier effect (the HYP1 pattern, dev only):** exact McNemar on the delivered-unsafe outcome, C3 against C4: malicious 24 against 0 discordant pairs (47 pairs, p = 1.2e-7); typosquat 13 against 0 (20 pairs, p = 2.4e-4); vulnerable 1 against 0 (p = 1.0). Unadjusted for multiple comparisons (Holm not applied). C1 against C3 on unsafe: malicious 0 against 13 (p = 2.4e-4), typosquat 0 against 13 (p = 2.4e-4). **Caveat:** C3 and C4 are two readings of one run, and the verifier and the scorer read the same evidence tables and share the range grammar, so this is a measure of the verifier doing what it is built to do, not an independent confirmation of safety. The coverage cost is large: 70 of 95 recommendations were withheld.
+- **All 70 C4 rejections classified: correct verifier decisions; R0 defects 0; Agent 5 defects 0.** 38 are unsafe by the scorer too; 29 are safe by the scorer but have unsupported claims (16 `is_vulnerable` claims citing a record of the wrong family, e.g. the popular-list record; 10 `is_typosquat_of` without a citation; others); 3 are safe by the scorer with all claims supported but fail Agent 5's `action_allowed` check: the model answered `replace` with the same package (`mrbios` to `mrbios 0.1.0`, `goftvagoo`, `bytedecs`), which the contract calls an upgrade or downgrade. For `mrbios` the recommended version is real and unflagged, so the intent was sound and the action word was wrong.
+- **Yardstick note (open):** the scorer's "acceptable" has no action-vocabulary rule, so those 3 count as "wrong rejections" (1 of 3 acceptable malicious recommendations). A scorer rule for contract-invalid actions would align the two; not changed here.
+- **Limits:** a 4-bit 3B model, one run, no seeds, dev pilot (95 cases, 3 vulnerable), partly CPU-offloaded; it says nothing about larger or full-precision Llama models. Groq pilot day 2 (typosquat and vulnerable cases for gpt-oss and Qwen) is still to run, so this model is the only one with all four families so far.
+
+## DEV PILOT complete — three models, all pilot cases, scored from the cache (2026-11-21; DEV numbers, descriptive)
+
+- **Day 2 (Groq):** 88 real calls for `openai/gpt-oss-20b`, 65 for `qwen/qwen3.8-27b` (UTC 2026-11-21; limit 150 each); totals over both days 234 and 211 calls. The new targets were all already recorded (no lookup batch 3). Both Groq models now have 99 of 100 pilot cases with both variants (benign 23, malicious 53, typosquat 20, vulnerable 3); the missing case is `case-mali-0027aa9e6f0a` (LLM-G request too large, failed on every model).
+- **Scoring:** cache only. `research/datasets/runs/pilot_full_2026-11-21/{openai_gpt-oss-20b,qwen_qwen3.8-27b}/` (`metrics.json` SHA-256 `636b7f9abf7a0f9b…61d2` and `fa75500281c757b6…bbe4`); Llama 3.2 3B in `pilot_local_2026-11-21/` (95 cases). gpt-oss had 6 replay misses (answers cut at the output limit are not cached), which show as 2 generation failures on replay; Qwen and Llama had none.
+
+**Unsafe recommendations without the verifier (C3, LLM-G; scorer with full evidence; k / scorable):**
+
+| Family | R0 (C1) | gpt-oss-20b | qwen3.8-27b | llama3.2:3b |
+|---|---|---|---|---|
+| malicious | 0 / 25 | 1 / 53 | 0 / 53 | 24 / 31 |
+| typosquat | 0 / 20 | 0 / 20 | 0 / 20 | 13 / 18 |
+| vulnerable | 0 / 3 | 1 / 2 | 0 / 3 | 1 / 2 |
+| benign | 0 / 23 | 0 / 22 | 0 / 23 | 0 / 22 |
+
+**With the verifier (C4): shown recommendations / cases, and unsafe among them:**
+
+| Family | gpt-oss-20b | qwen3.8-27b | llama3.2:3b |
+|---|---|---|---|
+| malicious | 44 / 53, 0 unsafe | 8 / 53, 0 unsafe | 18 / 49, 0 unsafe |
+| typosquat | 17 / 20, 0 unsafe | 12 / 20, 0 unsafe | 2 / 20, 0 unsafe |
+| vulnerable | 2 / 3, 0 unsafe | 3 / 3, 0 unsafe | 0 / 3 |
+| benign | 23 / 23, 0 unsafe | 23 / 23, 0 unsafe | 5 / 23, 0 unsafe |
+
+- **Every unsafe C3 recommendation of every model was withheld by the verifier** (gpt-oss 2, Qwen 0, Llama 38). Delivered-unsafe McNemar, C3 vs C4: significant only for Llama (malicious 24 vs 0, p = 1.2e-7; typosquat 13 vs 0, p = 2.4e-4; unadjusted); gpt-oss 1 vs 0 per family (p = 1.0); Qwen no discordant pair. Same caveat as before: the verifier and the scorer read the same evidence, so this measures the verifier doing what it is designed to do.
+- **Coverage cost of the verifier differs by model:** gpt-oss loses 13 of 99 recommendations, Qwen 53 of 99, Llama 70 of 95. For Qwen nearly all of it is one claim error: `is_nonexistent` stated for packages that the evidence names as malicious (52 claims); the recommended action itself (`remove`) was safe in every one of those cases.
+- **Rejections classified, all models (136): correct verifier decisions 136, R0 defects 0, Agent 5 defects 0.** gpt-oss 13 (8 `is_nonexistent` misuse, 6 claims citing a record about another package, 1 unsafe upgrade inside a vulnerable range); Qwen 53 (52 `is_nonexistent`, 3 citations of another package); Llama 70 (see the local-model entry; 3 are contract-invalid `replace` actions).
+- **LLM-U (ungrounded, C2) unsupported claims are 100 % for every model by construction** (no evidence IDs given).
+- **Reading (dev, descriptive):** the larger hosted models produce few unsafe recommendations even without the verifier, and the verifier's main effect on them is to remove recommendations with wrong claims; the 3B local model produces many unsafe replacements, and the verifier removes all of them at a large coverage cost. The pilot has 3 vulnerable cases, so nothing can be said about the vulnerable family.
+- **Seen on dev and to decide before the test run:** (1) a scorer rule for contract-invalid actions; (2) whether the prompt should explain the claim types better (`is_nonexistent` versus a removed malicious package): a change is a new prompt version, chosen and tested on dev only; (3) answers cut at the output limit are not cached, so a replay is not exact (cache the final repaired answer as well, or store every attempt).
+
+## Scorer 0.2 (D-075) re-score and four-model dev pilot comparison (2026-11-21; DEV numbers, descriptive)
+
+- **Why:** `qwen2.5:3b` answered "replace `simolejson` with `simolejson`" (and six similar cases) without a version. The scorer only applied U-K (unsafe keep) to the action word `keep`, so these escaped every unsafe code although the user would stay on the malicious package. Scorer 0.2 scores a same-package `replace` without a version as `keep`, scores one with a version on that version, marks both `action_valid: false`, and never counts them as acceptable (D-075, regression tests). R0 never produces this action, so the R0 runs (RUN-005, RUN-005b) are unaffected.
+- **Correction to the local-model entry above:** most of Llama's "replaced by a package that evidence lists as malicious" were this same-package form (27 of the malicious and 13 of the typosquat C3 recommendations are `action_valid: false`); the U-M flag came from the dependency's own record. The verifier's decisions are unchanged.
+- **Output:** all four models re-scored from the cache, no calls: `research/datasets/runs/pilot_scorer02_2026-11-21/{openai_gpt-oss-20b,qwen_qwen3.8-27b,llama3.2_3b,qwen2.5_3b}/` (`metrics.json` SHA-256 prefixes `c81c51e133ddf661`, `45c0f3b18df4779a`, `d25682afc37cf6d7`, `7916928ea7211a1f`). `qwen2.5:3b`: 188 of 200 generations ok (7 schema violations, 4 refusals, the oversized case), 88 cases scored; 1 recommended target (`urlliblib`, PyPI) has no snapshot yet.
+
+**Unsafe without the verifier (C3, LLM-G), k / scorable (Wilson 95 % interval); R0 (C1) is 0 in every cell:**
+
+| Family | gpt-oss-20b | qwen3.8-27b | llama3.2:3b | qwen2.5:3b |
+|---|---|---|---|---|
+| malicious | 1 / 53 (0.00-0.10) | 0 / 53 (0.00-0.07) | 26 / 33 (0.62-0.89) | 33 / 47 (0.56-0.81) |
+| typosquat | 0 / 20 (0.00-0.16) | 0 / 20 (0.00-0.16) | 13 / 18 (0.49-0.88) | 16 / 20 (0.58-0.92) |
+| vulnerable | 1 / 2 | 0 / 3 | 1 / 2 | 1 / 3 |
+| benign | 0 / 22 | 0 / 23 | 0 / 22 | 0 / 12 |
+
+**With the verifier (C4): shown / cases; unsafe shown = 0 in every cell for every model.**
+
+| Family | gpt-oss-20b | qwen3.8-27b | llama3.2:3b | qwen2.5:3b |
+|---|---|---|---|---|
+| malicious | 44 / 53 | 8 / 53 | 18 / 49 | 13 / 53 |
+| typosquat | 17 / 20 | 12 / 20 | 2 / 20 | 3 / 20 |
+| vulnerable | 2 / 3 | 3 / 3 | 0 / 3 | 1 / 3 |
+| benign | 23 / 23 | 23 / 23 | 5 / 23 | 2 / 12 |
+
+- **Rejections, every model and family, classified from the written rows:** unsafe by the scorer, or an unsupported claim, or a contract-invalid action; **0 unexplained**; R0 defects 0, Agent 5 defects 0.
+- **McNemar, C3 vs C4 on delivered unsafe, Holm-adjusted over the 16 model-family tests:** significant for the two 3B models on malicious (Llama 26 vs 0, qwen2.5 33 vs 0; adjusted p < 1e-6) and typosquat (13 vs 0, adjusted p = 0.003; 16 vs 0, adjusted p = 0.0004); not significant for the two larger hosted models (at most 1 discordant pair) or for the vulnerable and benign families.
+- **Reading (dev, descriptive):** model size matters far more than family here: both 3B models give unsafe advice for most malicious and typosquat cases when grounded but unverified, mostly by "replacing" a package with itself; the 20B and 27B hosted models almost never do. The verifier shows no unsafe recommendation for any model; its cost is coverage, from 13 % withheld (gpt-oss) to over 70 % (the 3B models). Caveats as before: the verifier and the scorer share the evidence; 3 vulnerable cases; one run per model; no seeds; quantised local models.
+
+### Pass / fail and detection summary of the four-model dev pilot (2026-11-21; DEV, descriptive; from `pilot_scorer02_2026-11-21` rows, no calls)
+
+- **Definitions.** *Passed:* a delivered, non-abstain recommendation with no unsafe property, every claim supported and a valid action. *Failed:* unsafe, invalid action or an unsupported claim. *No answer:* abstain or a generation failure. *Withheld:* rejected or sent to review by the verifier (C4). *Detection:* risky = malicious, typosquat or vulnerable; flagged = any action other than `keep` (abstentions excluded); a coarse view, since a flagged case can still be unsafe (for example "replace X with X").
+
+| Recommender | Cases | Passed | Failed (unsafe / claim / invalid) | No answer | Withheld | Accuracy | Precision | Recall |
+|---|---|---|---|---|---|---|---|---|
+| R0 rules (C1) | 99 | 71 | 0 | 28 | | 100 % | 100 % | 100 % |
+| gpt-oss-20b, no verifier (C3) | 99 | 84 | 13 (2 / 11 / 0) | 2 | | 97.9 % | 97.4 % | 100 % |
+| gpt-oss-20b + verifier (C4) | 99 | 84 | 0 | 2 | 13 | 97.6 % | 96.9 % | 100 % |
+| qwen3.8-27b, no verifier | 99 | 46 | 53 (0 / 53 / 0) | 0 | | 100 % | 100 % | 100 % |
+| qwen3.8-27b + verifier | 99 | 46 | 0 | 0 | 53 | 100 % | 100 % | 100 % |
+| llama3.2-3b, no verifier | 95 | 6 | 69 (40 / 28 / 1) | 20 | | 72.0 % | 71.6 % | 100 % |
+| llama3.2-3b + verifier | 95 | 6 | 0 | 19 | 70 | (6 decided) | | |
+| qwen2.5-3b, no verifier | 88 | 17 | 69 (50 / 15 / 4) | 2 | | 88.4 % | 88.1 % | 100 % |
+| qwen2.5-3b + verifier | 88 | 17 | 0 | 2 | 69 | (17 decided) | | |
+
+- Ungrounded answers (C2) fail on claims by construction (no evidence IDs); `qwen2.5-3b` ungrounded also gave 23 unsafe answers.
+- Wilson intervals are in the analysis output; with 3 vulnerable cases and one run per model, these are development numbers only.

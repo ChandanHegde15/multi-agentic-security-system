@@ -103,6 +103,7 @@ class LLMOptions:
     max_schema_retries: int = 2                  # repair requests after a schema violation
     max_transport_retries: int = 2               # repeats after llm_error / llm_timeout
     max_versions_in_prompt: int = 200
+    prompt_version: str = "a4-prompt/0.1"       # which prompt text (prompt.PROMPTS); 0.1 stays the default (D-076)
 
     def __post_init__(self) -> None:
         for name in ("max_schema_retries", "max_transport_retries"):

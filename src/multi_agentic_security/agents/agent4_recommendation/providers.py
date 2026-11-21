@@ -1,6 +1,6 @@
-"""Hosted LLM adapter for Agent 4: Groq (D-064, D-068).
+"""LLM adapters for Agent 4: Groq (hosted, D-064, D-068) and Ollama (local, D-074).
 
-This is the only Agent 4 module that touches the network. The adapter implements
+This is the only Agent 4 module that touches the network (Ollama only on a loopback address). The adapter implements
 ``LLMClient`` (``llm.py``):
 
 * the API key is read from the environment **at each call** and sent only in a request
@@ -222,3 +222,85 @@ def _str(v) -> Optional[str]:
 
 def _ints(d: dict) -> dict:
     return {k: v for k, v in d.items() if isinstance(v, int) and not isinstance(v, bool)}
+
+
+# --------------------------------------------------------------------------- Ollama (local, D-074)
+
+_OLLAMA_MODEL = re.compile(r"^[a-z0-9][a-z0-9._/\-]{0,100}:[A-Za-z0-9][A-Za-z0-9._\-]{0,60}$")
+_LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+def _loopback_url(url: str) -> str:
+    """The base URL of a local Ollama server: plain http to a loopback address only, no credentials, no path.
+    Prompts must never leave the machine through this adapter."""
+    from urllib.parse import urlsplit
+    try:
+        u = urlsplit(url)
+        host, port = u.hostname, u.port
+    except ValueError:
+        raise ValueError("base_url is not a valid URL") from None
+    bad = (u.scheme != "http" or host not in _LOOPBACK or bool(u.username) or bool(u.password)
+           or u.path not in ("", "/") or bool(u.query) or bool(u.fragment))
+    if bad:
+        raise ValueError("base_url must be plain http to 127.0.0.1, localhost or ::1, without credentials or path")
+    return f"http://{'[::1]' if host == '::1' else host}:{port or 11434}"
+
+
+class OllamaClient:
+    """A local model served by Ollama (``/api/chat``). No key is needed or read. The model is an exact
+    ``name:tag`` (a bare name or ``:latest`` moves, so it is refused). A prompt that would not fit the context
+    window is refused (``prompt_too_long``) instead of being silently truncated by the server. Failures raise
+    ``LLMError`` / ``LLMTimeout`` with a machine code only (D-063); a model that is not pulled is ``model_not_found``.
+    The request and response shapes follow Ollama's public API documentation and are tested against recorded
+    shapes; the first live call is a separate, recorded trial."""
+
+    provider = "ollama"
+    FINISH = {"stop": "end", "length": "length"}
+    CHARS_PER_TOKEN = 3.0              # conservative: more tokens than the usual ~4 characters each
+
+    def __init__(self, model: str, *, base_url: str = "http://127.0.0.1:11434", transport: Optional[Transport] = None,
+                 num_ctx: int = 8192):
+        model = (model or "").strip()
+        if not _OLLAMA_MODEL.match(model) or model.rsplit(":", 1)[1].lower() == "latest":
+            raise ValueError(f"model {model!r} is not an exact name:tag identifier (for example llama3.2:3b)")
+        if "cloud" in model.lower():
+            # A signed-in Ollama app forwards ``*-cloud`` / ``:cloud`` models from localhost to Ollama's servers, so the
+            # loopback check alone would not keep prompts on this machine. Hosted models need a hosted adapter (D-074).
+            raise ValueError(f"model {model!r} is a cloud model; this adapter serves local models only")
+        if not isinstance(num_ctx, int) or isinstance(num_ctx, bool) or not 512 <= num_ctx <= 131072:
+            raise ValueError("num_ctx must be an integer between 512 and 131072")
+        self.model, self.num_ctx = model, num_ctx
+        self._base = _loopback_url(base_url)
+        self._transport = transport or urllib_transport
+
+    def __repr__(self) -> str:
+        return f"OllamaClient(model={self.model!r})"
+
+    def generate(self, request: LLMRequest) -> LLMResponse:
+        text_in = request.system + "".join(m[1] for m in request.messages)
+        if len(text_in) / self.CHARS_PER_TOKEN + request.max_output_tokens > self.num_ctx:
+            raise LLMError(code="prompt_too_long")
+        options = {"temperature": request.temperature, "num_predict": request.max_output_tokens, "num_ctx": self.num_ctx}
+        if request.seed is not None:
+            options["seed"] = request.seed
+        payload = {"model": self.model, "stream": False, "options": options,
+                   "messages": [{"role": "system", "content": request.system}] +
+                               [{"role": role, "content": text} for role, text in request.messages]}
+        status, data = self._transport(f"{self._base}/api/chat", {"Content-Type": "application/json"},
+                                       json.dumps(payload).encode("utf-8"), request.timeout_s)
+        if status == 404:
+            raise LLMError(code="model_not_found")
+        if status != 200:
+            raise _status_error(status)
+        obj = _json(data)
+        try:
+            text = (obj.get("message") or {}).get("content")
+            done, reason = obj.get("done"), obj.get("done_reason")
+        except AttributeError:
+            raise LLMError(code="invalid_provider_response") from None
+        if not isinstance(text, str) or done is not True:
+            raise LLMError(code="invalid_provider_response")
+        return LLMResponse(text=text, stop_reason=self.FINISH.get(reason, "other"), provider_response_id=None,
+                           usage=_ints({"input_tokens": obj.get("prompt_eval_count"),
+                                        "output_tokens": obj.get("eval_count")}))
+

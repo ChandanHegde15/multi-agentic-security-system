@@ -56,13 +56,14 @@ Eight normalized tables, 123,980 records; per-table record counts and SHA-256 ar
 | Item | Value |
 |---|---|
 | R0 | `r0/0.1` (deterministic rules) |
+| Scorer | `scorer/0.2` (D-071, D-075) |
 | Prompt | `a4-prompt/0.1` (unchanged); a later prompt is a new version chosen on dev only |
-| Models | `openai/gpt-oss-20b` (slot 1) and `qwen/qwen3.8-27b` (slot 2), Groq, exact identifiers |
+| Models | `openai/gpt-oss-20b` (slot 1) and `qwen/qwen3.8-27b` (slot 2), Groq, exact identifiers; `llama3.2:3b` (Q4_K_M, image ID `a80c4f17acd5`) and `qwen2.5:3b` (image ID `357c53fb659c`), local through Ollama, 8,192-token context (D-074) |
 | Variants | LLM-U (ungrounded), LLM-G (grounded) |
 | Temperature, seed | 0, none sent |
 | Output limit | 2,048 tokens |
 | Retries | 2 schema repairs, 2 transport retries |
-| Pace | 12 s between calls, response cache on, call budget at most 150 per model per day |
+| Pace | Groq: 12 s between calls, response cache on, at most 150 calls per model per day; local model: no daily limit |
 
 The hosted models' weights can change without notice; the identifier is recorded, the weights are not verifiable (limit to state).
 
@@ -79,7 +80,7 @@ The hosted models' weights can change without notice; the identifier is recorded
 1. **Vulnerable family:** no test cases and one dev group. The sample of 300 repositories (D-044) needs the owner's approval to acquire; without it the vulnerable headline cannot be measured.
 2. Held-out cut-offs and the snapshots for the test side (section 3 and 4).
 3. HYP4 margin and the minimum groups for an interval.
-4. Scorer: the range grammar is shared with Agent 5, so agreement on version facts is not independent evidence; golden vectors for `in_range` and `above` are still to be written.
+4. Scorer: the range grammar is shared with Agent 5, so agreement on version facts is not independent evidence. Hand-written golden vectors for `in_range` and `above` now exist (73, all pass; D-073). Open: the scorer strips PyPI local versions and accepts gap fixes while the shared reader does not; whether Agents 3 and 5 should follow is the owner's decision.
 5. No npm advisories exist in the evidence tables, so unsafe-version results are PyPI only.
 6. Nonexistent family: the case label means "forced to test"; existence comes from the snapshot, and an injected benchmark name is not a verified nonexistent package.
 7. Human ratings, the claim-matcher audit and the external audit tool need annotators and are outside the machinery.

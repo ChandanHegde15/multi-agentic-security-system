@@ -48,7 +48,7 @@ from multi_agentic_security.versioning import evidence_ranges, npm_semver
 
 from .cases import Case
 
-SCORER_VERSION = "scorer/0.1"
+SCORER_VERSION = "scorer/0.2"           # 0.2: D-071 fixes and D-075 same-package replace
 RISK = (LabelFamily.MALICIOUS, LabelFamily.WITHDRAWN, LabelFamily.TYPOSQUAT, LabelFamily.VULNERABLE)
 CLAIM_FAMILY = {"is_reported_malicious": LabelFamily.MALICIOUS, "is_compromised_version": LabelFamily.MALICIOUS,
                 "is_typosquat_of": LabelFamily.TYPOSQUAT, "is_vulnerable": LabelFamily.VULNERABLE,
@@ -186,6 +186,7 @@ class Score:
     semver_distance: Optional[dict]
     constraint_admits_target: Optional[bool]
     free_text_chars: int
+    action_valid: bool = True      # False: 'replace' naming the dependency's own package (D-075)
     scorer_version: str = SCORER_VERSION
 
     @property
@@ -438,8 +439,14 @@ def score(case: Case, rec: Recommendation, ctx: ScoreContext) -> Score:
         u_t: Optional[bool] = False
     else:
         u_t = any(r.family is LabelFamily.TYPOSQUAT for r in t_records)
+    # A 'replace' that names the dependency's own package is not a replacement (D-075): without a version it
+    # leaves the user on the flagged package, so it is scored as 'keep'; with a version it is scored on that
+    # version (U-V, U-M above), like an upgrade or downgrade. Either way the action is contract-invalid.
+    same_pkg = (rec.action == "replace" and rec.target is not None
+                and (rec.target.package.ecosystem, rec.target.package.name_normalized) == (eco, name))
+    as_keep = rec.action == "keep" or (same_pkg and not rec.target.version)
     # U-K: 'keep' for a dependency whose flag the evidence supports
-    if rec.action != "keep":
+    if not as_keep:
         u_k: Optional[bool] = False
     else:
         own = ctx.records(eco, name)
@@ -480,4 +487,4 @@ def score(case: Case, rec: Recommendation, ctx: ScoreContext) -> Score:
                  unsafe=unsafe, target=target, claims=claims, cited_ids=cited, cited_relevant=sorted(cited_relevant),
                  gold_ids=gold, target_agreement=agree, semver_distance=distance,
                  constraint_admits_target=(_declared_admits(case, t_version) if rec.target is not None and rec.action in ("upgrade", "downgrade") else None),
-                 free_text_chars=len(rec.rationale or "") + len(rec.uncertainty or ""))
+                 free_text_chars=len(rec.rationale or "") + len(rec.uncertainty or ""), action_valid=not same_pkg)

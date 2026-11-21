@@ -61,7 +61,7 @@ def _llm_recommendation(p: Packet, client: LLMClient, store: ResponseStore, opti
                         failures: list[Failure]) -> Recommendation:
     dep = p.dependency
     model = f"{client.provider}/{client.model}"
-    pv = P.prompt_version(p.variant)
+    pv = P.prompt_version(p.variant, options)
     reasons = [_packet_reason(p)]
     if dep.package is None or p.assessment is None:
         # Same inputs as R0's first rule: without a package or an assessment the model is not called (D-063).
@@ -207,6 +207,6 @@ def recommend(extraction: ExtractionResult, registry: RegistryResult, risk: Risk
         stage = f"{STAGE_VERSION}+{RULES_VERSION}"
     else:
         recs = [_llm_recommendation(p, llm, response_store, options, clock, failures) for p in packets]
-        stage = f"{STAGE_VERSION}+{P.PROMPT_VERSION}"
+        stage = f"{STAGE_VERSION}+{options.prompt_version}"
     return RecommendationResult(project_id=extraction.project_id, stage_version=stage, started_at=started,
                                 finished_at=max(clock(), started), recommendations=recs, failures=failures)
