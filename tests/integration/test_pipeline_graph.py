@@ -208,8 +208,8 @@ def test_multi_snapshot_client_reads_several_folders_and_flags_conflicts(tmp_pat
     (a / "npm_lodash.json").write_bytes((src / "npm_lodash.json").read_bytes())
     (b / "npm_lodash.json").write_bytes((src / "npm_lodash.json").read_bytes())          # same answer twice
     (b / "pypi_requests.json").write_bytes((src / "pypi_requests.json").read_bytes())
-    d = json.loads((src / "pypi_numpy.json").read_text())
-    d["name"] = "requests"
+    d = json.loads((src / "pypi_requests.json").read_text())
+    d["body"]["releases"] = {v: r for v, r in list(d["body"]["releases"].items())[:1]}       # fewer versions
     (a / "pypi_requests.json").write_text(json.dumps(d), encoding="utf-8")                  # a different answer
     m = MultiSnapshotClient([a, b])
     assert m.mode == "snapshot" and m.lookup("npm", "lodash").status == "found"
@@ -218,6 +218,28 @@ def test_multi_snapshot_client_reads_several_folders_and_flags_conflicts(tmp_pat
     assert conflict.status == "lookup_error" and conflict.rule_id == "a2.status.snapshot_conflict"
     with pytest.raises(ValueError):
         MultiSnapshotClient([])
+
+
+
+def test_a_recorded_failure_gives_way_to_an_answer_in_another_folder(tmp_path):
+    """D-092: a timeout recorded in one folder is no answer; a later folder's answer is used. Two failures stay a
+    failure, and two different answers stay a conflict (previous test)."""
+    a, b, c = tmp_path / "a", tmp_path / "b", tmp_path / "c"
+    for f in (a, b, c):
+        f.mkdir()
+    src = FIX / "registry_snapshot"
+    good = json.loads((src / "pypi_requests.json").read_text())
+    failed = {k: good[k] for k in ("format", "ecosystem", "name", "url", "retrieved_at") if k in good}
+    failed.update({"http_status": None, "error": "overall deadline of 60 s reached; timeout"})
+    (a / "pypi_requests.json").write_text(json.dumps(failed), encoding="utf-8")
+    (c / "pypi_numpy.json").write_bytes((src / "pypi_numpy.json").read_bytes())          # a recorded HTTP 503
+    (b / "pypi_requests.json").write_bytes((src / "pypi_requests.json").read_bytes())
+    (a / "pypi_numpy.json").write_text(json.dumps(dict(failed, name="numpy")), encoding="utf-8")
+    assert SnapshotRegistryClient(a).lookup("pypi", "requests").status == "lookup_error"
+    assert MultiSnapshotClient([a, b]).lookup("pypi", "requests").status == "found"
+    assert MultiSnapshotClient([b, a]).lookup("pypi", "requests").status == "found"
+    both = MultiSnapshotClient([a, c]).lookup("pypi", "numpy")                            # timeout and 503: still unknown
+    assert both.status == "lookup_error" and both.rule_id != "a2.status.snapshot_conflict"
 
 
 # --------------------------------------------------------------------------- boundaries

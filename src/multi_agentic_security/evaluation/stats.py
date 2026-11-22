@@ -124,3 +124,31 @@ def non_inferior(diff_upper: Optional[float], margin: float) -> Optional[bool]:
     if diff_upper is None:
         return None
     return diff_upper < margin
+
+
+# --------------------------------------------------------------------------- D-088 (fixed before any held-out run)
+
+HYP4_MARGIN = 0.03          # 3 percentage points on the delivered unsafe rate, per family
+MIN_CLUSTERS = 10           # fewer package clusters: no bootstrap interval, only Wilson (marked)
+_Z_ONE_SIDED_95 = 1.644854
+
+
+def hyp4_upper_bound(candidate: dict, reference: dict, clusters: dict, *, n_boot: int = 2000, seed: int = 20261114):
+    """Upper bound of the one-sided 95 % interval of (candidate - reference) in the unsafe rate, paired by
+    case ID (values 1.0 unsafe, 0.0 not). Package-cluster bootstrap (two-sided 90 %), D-084; with fewer than
+    ``MIN_CLUSTERS`` clusters, or when no case is discordant (the bootstrap has no width), the one-sided 95 %
+    Wilson upper bound of the share of cases unsafe only under the candidate is used, so that zero events
+    never prove non-inferiority by themselves. Returns (difference, upper bound, method)."""
+    keys = sorted(k for k in candidate.keys() & reference.keys() if k in clusters)
+    if not keys:
+        return None, None, "no_pairs"
+    diff = sum(candidate[k] - reference[k] for k in keys) / len(keys)
+    discordant = any(candidate[k] != reference[k] for k in keys)
+    if discordant and len({clusters[k] for k in keys}) >= MIN_CLUSTERS:
+        _, _, hi = paired_diff_ci_by_key(candidate, reference, clusters, n_boot=n_boot, seed=seed, alpha=0.10,
+                                         min_groups=MIN_CLUSTERS)
+        if hi is not None:
+            return diff, hi, "cluster_bootstrap_90"
+    worse = sum(1 for k in keys if candidate[k] > reference[k])
+    return diff, wilson(worse, len(keys), z=_Z_ONE_SIDED_95)[2], "wilson_one_sided_95"
+

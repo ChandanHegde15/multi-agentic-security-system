@@ -530,3 +530,118 @@ Suggested set (D-038: models from different families): gpt-oss-20b on Groq (Open
 
 - Ungrounded answers (C2) fail on claims by construction (no evidence IDs); `qwen2.5-3b` ungrounded also gave 23 unsafe answers.
 - Wilson intervals are in the analysis output; with 3 vulnerable cases and one run per model, these are development numbers only.
+
+### Prompt 0.1 vs 0.2, local models (2026-11-21; DEV, descriptive; scorer 0.2; from the response cache, no calls)
+
+- **Runs.** `a4-prompt/0.2` (D-076 b) on the 100 dev pilot cases, both variants, temperature 0, same models and settings as the 0.1 runs. Scored from the cache only into `runs/pilot_p02b4_2026-11-21/<model>/` (rows `llama3.2_3b` b09c371f449e, `qwen2.5_3b` 3e22559566b0; snapshots as before plus `dev_batch4_2026-11-21`, see below); compared with `runs/pilot_scorer02_2026-11-21/` (prompt 0.1). Outcomes on C3 (grounded, no verifier), definitions as in the pass / fail summary above; *not scored* = a generation of either variant failed, so the case is missing from the result. The hosted models' 0.2 runs are incomplete (gpt-oss 48 and Qwen 27B 79 of 200 generations; daily call limit) and are not reported here.
+
+| Model, prompt | Scored | Passed | Failed (unsafe / claim / invalid) | Not scorable | No answer | Not scored | C4 withheld |
+|---|---|---|---|---|---|---|---|
+| llama3.2-3b, 0.1 | 95 | 6 | 69 (40 / 28 / 1) | 0 | 20 | 5 | 70 |
+| llama3.2-3b, 0.2 | 99 | 32 | 50 (27 / 23 / 0) | 0 | 17 | 1 | 50 |
+| qwen2.5-3b, 0.1 | 88 | 17 | 69 (50 / 15 / 4) | 0 | 2 | 12 | 69 |
+| qwen2.5-3b, 0.2 | 81 | 29 | 40 (28 / 11 / 1) | 0 | 12 | 19 | 47 |
+
+- **McNemar exact on passed, paired by case** (all 100; not scored = not passed): llama 4 cases passed only under 0.1 and 30 only under 0.2, p = 6.2e-6; qwen2.5 8 vs 20, p = 0.036. On cases scored under both prompts: llama (95) 4 vs 29, p = 1.1e-5, C3 unsafe 40 vs 26; qwen2.5 (76) 3 vs 16, p = 0.0044, C3 unsafe 45 vs 28. Unadjusted.
+- **D-076 (c) applied:** llama3.2:3b passed 6 to 32, C3 unsafe 40 to 27: **prompt 0.2**. qwen2.5:3b passed 17 to 29, C3 unsafe 50 to 28: **prompt 0.2** (dev-only model, D-076 a).
+- **Per family (0.2).** The gain is mostly malicious (llama PASS 2 to 24; qwen2.5 11 to 15) and typosquat (llama 0 to 6). Benign got worse for llama (PASS 4 to 1; 22 claim failures) and better for qwen2.5 (2 to 9). Vulnerable: 3 cases, nothing to read.
+- **Costs and caveats.** qwen2.5 under 0.2 has more cases missing (19 vs 12; schema violations and refusals) and more abstentions (12 vs 2), so part of its lower unsafe count is fewer answers; on the paired cases the unsafe count still fell. One recommended target had no registry snapshot (`pypi:py-cord`, one qwen2.5 answer); with the owner's approval it was looked up once (metadata only, PyPI, 2026-11-21T10:33Z, found, 36 versions; `registry_snapshots/dev_batch4_2026-11-21`, file SHA-256 fd7b2ef55bfb…). The first scoring without it (`runs/pilot_p02_2026-11-21/`, superseded) had this case not scorable and 28 passed; the choice is the same either way. Dev numbers, one run per model, quantised local models, the verifier and the scorer share the evidence.
+- **Reproduce.** `pilot_score_model_p02b4.py <out> llama3.2:3b qwen2.5:3b` then `P02=pilot_p02b4_2026-11-21 cmp_p01_p02.py llama3.2_3b qwen2.5_3b` (text copies in the pilot scripts folder).
+
+### D-044 vulnerable-case sample acquired (2026-11-21 to 2026-11-22; acquisition only, nothing scored)
+
+- **Frame.** GitHub repository search, query `language:Python fork:false archived:false stars:>=10 pushed:>=2022-12-01` (D-080), monthly creation windows 2015-01 to 2024-11 split until each fits under the 1,000-result cap: **225,807 repositories, 0 truncated windows, 0 `incomplete_window` markers** (the first 47 windows were fetched before that check, D-081), 633 search calls. Retrieved over two days (windows up to 2023-01 on 2026-11-21, the rest on 2026-11-22), so star counts and push dates are not from one instant. The build was interrupted several times (dropped connections, D-079; a garbled answer, D-081; the machine running out of memory) and resumed from the saved windows each time.
+- **Bands** (stars at retrieval): 10-99: 178,566; 100-999: 40,512; 1,000 and more: 6,720.
+- **Sample.** Seed 20261114, repositories drawn in random order per band and checked until 100 per band were eligible (D-077): **300 accepted (100 / 100 / 100) of 2,267 checked**, 10,047 API calls in all. A repository is eligible if at least one cut-off snapshot passes: at the last commit before the cut-off, active in the previous 24 months, at most 3 requirement files, at least 5 exact pins. Eligible at both cut-offs 219, only at 2024-12-01 56, only at 2025-09-01 25.
+- **Rejections per cut-off snapshot** (2,267 repositories, two cut-offs each):
+
+| Reason | 2024-12-01 | 2025-09-01 |
+|---|---|---|
+| Eligible | 275 | 244 |
+| No requirements file | 1,165 | 1,050 |
+| Fewer than 5 exact pins | 511 | 434 |
+| Inactive for 24 months before the cut-off | 300 | 529 |
+| No commit before the cut-off | 16 | 10 |
+
+- **Rejected repositories by reason** (1,967): no requirements file only 993; fewer than 5 pins only 407; inactive only 258; inactive and no requirements file 181; fewer pins and inactive 86; other combinations 40.
+- **Licences of the accepted repositories:** MIT 119, Apache-2.0 53, GPL-3.0 26, AGPL-3.0 14, other 28, none stated 60. Only requirement files are stored, locally and git-ignored; they are not redistributed.
+- **Files.** `research/datasets/acquired/d044_pins_2026-11-21_a2/` (git-ignored): `frame.jsonl` SHA-256 `a4e4473b3f46799afc115ee7653582aaa89ee99ea971f95abfb11dd2cbe528e8`, `checked.jsonl` SHA-256 `8a936be01d098bd837446e413691f86e734ad6d676f4cd24042b29c27bfbe658`, 300 requirement-file folders under `files/`, run record `RUN_RECORD_20261122T105043.json`. Runner: `d044_run.py.txt` in `runtime/runs/pilot_2026-11-20/scripts/`.
+- **Not yet done.** The vulnerable cases themselves (pins inside an OSV PyPI affected range at each cut-off), their grouping under D-078 and D-082, and their split. No pin has been matched against advisories yet, so the number of vulnerable cases is unknown.
+
+### Prompt 0.1 vs 0.2, qwen3.8-27b (2026-11-22; DEV, descriptive; scorer 0.2; from the response cache, no calls)
+
+- **Run.** `a4-prompt/0.2` generations complete for `qwen/qwen3.8-27b` (200 lines: LLM-U 100 ok, LLM-G 99 ok and 3 `llm_error` lines retried later, 1 case without an ok LLM-G answer). Recommended targets checked offline against every snapshot folder: 91 distinct, all recorded, no lookup needed. Scored from the cache (198 hits, 0 misses) into `research/datasets/runs/pilot_p02hq_2026-11-22/qwen_qwen3.8-27b/` (`rows.jsonl` `db7497ccee6a…`, `metrics.json` `4c24308fc5af…`).
+
+| Prompt | Scored | Passed | Failed (unsafe / claim / invalid) | No answer | Not scored | C4 withheld |
+|---|---|---|---|---|---|---|
+| 0.1 | 99 | 46 | 53 (0 / 53 / 0) | 0 | 1 | 53 |
+| 0.2 | 99 | 89 | 10 (0 / 10 / 0) | 0 | 1 | 10 |
+
+- **McNemar exact on passed, paired by case:** 0 cases passed only under 0.1, 43 only under 0.2, p = 2.3e-13. C3 unsafe 0 under both.
+- **D-076 (c) applied:** passed 46 to 89, C3 unsafe 0 to 0: **prompt 0.2**. The gain is malicious (passed 8 to 45) and typosquat (12 to 18); the remaining failures are unsupported claims (malicious 8, typosquat 2), all withheld by the verifier (C4: 0 delivered unsafe, 0 wrong rejections).
+- **Still pending:** `openai/gpt-oss-20b` (daily call limit).
+- **Reproduce.** `pilot_score_p02b4.py <out> qwen_qwen3.8-27b`, then `P02=pilot_p02hq_2026-11-22 cmp_p01_p02.py qwen_qwen3.8-27b` (text copies in `runtime/runs/pilot_2026-11-20/scripts/`).
+
+### Vulnerable test cases built: cases_v3 (2026-11-22; case construction only, nothing run or scored)
+
+- **Rule.** D-044 item 8: an exact pin becomes a vulnerable case if the pinned version lies in an affected range of a non-withdrawn OSV PyPI record (`vulnerable/osv_pypi_a2`) published before the cut-off T. One case per (package, version, T), with the number of repositories as weight (item 9). Only snapshots that passed the D-044 checks were read.
+
+| Cut-off T | Eligible snapshots | Lines | Exact pins | Pins inside a range | Cases after merge | Packages | Range unreadable |
+|---|---|---|---|---|---|---|---|
+| 2024-12-01 | 275 | 10,976 | 9,739 | 1,424 | **733** | 129 | 25 |
+| 2025-09-01 | 244 | 11,199 | 10,074 | 1,403 | **754** | 137 | 34 |
+
+- **Size check (D-044 item 10):** both lists are above 300 cases, so no extension. 600 (package, version) pairs occur under both cut-offs; 889 distinct cases in all (one, `jinja2==3.1.2`, equals an existing dev case and is kept once).
+- **Split (D-078, D-082).** The cases_v2 sides are kept except for groups reached by a sampled case, which go to test: 22 cases moved (train: 5 malicious, 9 typosquat; dev: 2 malicious, 3 typosquat, 3 vulnerable), all to test. The 8 moved dev cases are flagged `seen_in_development`; 4 of them are pilot cases. 59 further test cases share a package or typosquat target with a seen case (D-084). `verify_splits`: no problem.
+- **Grouping finding (D-084).** Repository links join the 889 vulnerable test cases into 3 split groups (one of 885). Intervals on the held-out side therefore resample package clusters, not split groups; the analysis code still has to be changed for this, with tests, before any held-out run.
+- **Counts per side (cases / split groups):** vulnerable 0 / 0, 0 / 0, 889 / 3; typosquat 335 / 183, 86 / 50, 115 / 46; malicious 1,239 / 1,238, 249 / 248, 283 / 272; nonexistent 0 / 0, 0 / 0, 1,067 / 1,065; benign reference 521 / 521, 104 / 104, 107 / 107 (train, dev, test).
+- **Files** (`research/datasets/evaluation/cases_v3/`, git-ignored; cases_v2 unchanged): `train.jsonl` `4da368c4…`, `dev.jsonl` `27d51078…`, `test.jsonl` `d9b929ab…`, `vulnerable_test_T2024-12-01.jsonl` `ed62910e…`, `vulnerable_test_T2025-09-01.jsonl` `679a2c10…`, `BUILD_RECORD.json` `ed1b8e0f…` (moved cases with former side, flags, line counts, input hashes), builder `build_cases_v3.py.txt`. A held-out run at cut-off T reads the list for T; the vulnerable cases in `test.jsonl` are the union, labelled from the earlier cut-off where both apply.
+- **Not verified.** Whether each case's advisory is the right one for the project (the label is the version range only); declared pins are not necessarily deployed (D-044 known limits).
+
+### cases_v4: only real projects (2026-11-22; D-085; case construction only)
+
+- The name rule of D-085 (fixed before it was applied) dropped 1 of the 300 repositories: `aapatre/Automatic-Udemy-Course-Enroller-GET-PAID-UDEMY-COURSES-for-FREE` (band 1,000+, token "course"). Its name suggests an automation tool rather than a course (not checked further), so the drop is a false positive of the rule; it is kept as fixed rather than changed after seeing the result. Bands now 100 / 100 / 99.
+- **Cases:** 732 at 2024-12-01 (129 packages) and 753 at 2025-09-01 (136 packages); 888 distinct; size check met. Moved cases, flags and `verify_splits` as in cases_v3 (22 moved, 8 seen, 4 pilot, 59 sharing a package with a seen case; no problem).
+- **Files** (`research/datasets/evaluation/cases_v4/`, git-ignored): `train.jsonl` `4da368c4…`, `dev.jsonl` `27d51078…` (both identical to cases_v3), `test.jsonl` `8840e492…`, `vulnerable_test_T2024-12-01.jsonl` `c500a975…`, `vulnerable_test_T2025-09-01.jsonl` `384fa035…`, `BUILD_RECORD.json` `1566389e…`. cases_v3 is superseded.
+- **D-084 implemented:** intervals in `aggregate` now resample package clusters (`interval_clusters`); 2 unit tests, 1 integration test (requirement text to cases to split to an R0 run).
+
+### cases_v5: vulnerable cases split 60 / 20 / 20 (2026-11-22; D-086; case construction only)
+
+- **Rule.** Grouping by package and typosquat target, not repository; cases_v2 sides kept; free package clusters assigned largest first to the side furthest below its share (`stratified_group_sides`, seed 20261114). Inputs: cases_v2 lists and the cases_v4 per-cut-off vulnerable lists.
+- **Vulnerable cases (train / dev / test):**
+
+| Cut-off | Train | Dev | Test |
+|---|---|---|---|
+| 2024-12-01 | 436 (52 packages) | 155 (39) | 141 (38) |
+| 2025-09-01 | 444 (54) | 153 (40) | 156 (42) |
+| Distinct cases | 531 (58 clusters) | 180 (43) | 177 (43) |
+
+- Largest clusters: torch 57 cases (train), transformers 42 (train), protobuf 31 (train); 13 clusters took the side of a cases_v2 case (for example flask, jinja2, werkzeug: dev; django: test).
+- **Other families** keep their cases_v2 cases and sides (typosquat 344 / 89 / 103, malicious 1,244 / 251 / 276, nonexistent 0 / 0 / 1,067, benign reference 521 / 104 / 107); group keys are recomputed without repository links. No cases_v2 case changed side, so no case seen in development is on test. `verify_splits` (package-level): no problem.
+- **Files** (`research/datasets/evaluation/cases_v5/`, git-ignored): `train.jsonl` `35c53968…`, `dev.jsonl` `343fe8df…`, `test.jsonl` `5d8145b7…`, per side and cut-off `vulnerable_<side>_T<date>.jsonl`, `BUILD_RECORD.json` `809485a0…`, builder `build_cases_v5.py.txt`. cases_v3 and cases_v4 are superseded.
+
+### Hosted-model test sample and a third local model (2026-11-22; D-087; no test case run)
+
+- **Sample.** 60 cases_v5 test cases per family (300), drawn by the D-087 rule after it was recorded; vulnerable: 49 of them are in the 2024-12-01 list and 52 in the 2025-09-01 list. Files in `research/datasets/evaluation/cases_v5/hosted_sample_D087/` (git-ignored): `hosted_sample.jsonl` `3dbeee09…`, `hosted_vulnerable_T2024-12-01.jsonl` `f338e5c9…`, `hosted_vulnerable_T2025-09-01.jsonl` `69a48637…`, `SAMPLE_RECORD.json`; script `hosted_sample_D087.py.txt` next to them.
+- **Local model added.** `qwen2.5:7b` through Ollama (Q4_K_M, 7.6B parameters, image ID `845dbda0ea48`, 4.7 GB). Measured on this machine (GTX 1650, 4 GB; 16 GB RAM): about 16 s per generation, so a full test setting (1,730 cases, 2 variants) is about 15 hours. Its dev pilot (prompts 0.1 and 0.2, 100 cases) started; the prompt is chosen by D-076 (c) when both finish.
+
+### Test-side registry lookups (2026-11-22; D-089; metadata only)
+
+- **Names.** 1,585 distinct cases_v5 test package names; 4 already in a recorded folder; 1,581 looked up (PyPI JSON and npm registry metadata; nothing downloaded or installed).
+- **Folders** (`research/datasets/registry_snapshots/`, git-ignored): `test_2026-11-22` (993 responses: 230 HTTP 200, 760 HTTP 404, 3 without a response: `numpy`, `pymongo`, `pyorthomosaic`, recorded as `lookup_error`), stopped by the machine running out of memory and closed with a record of the files it holds; `test_2026-11-22b` (the remaining 586: 48 HTTP 200, 538 HTTP 404). The two invalid names of D-091 were refused by the client and have no file. HTTP 200 includes npm security placeholders (packages removed for security reasons).
+- **Defect, recorded:** after a restart of the session, a second copy of the lookup tool was still running and wrote into `test_2026-11-22b` at the same time; 123 files were rewritten after that folder's `RUN_RECORD.json`. Their HTTP status agrees with the record in every case. The authoritative hashes of every file as on disk are in `runtime/runs/pilot_2026-11-20/test_lookups_files_on_disk_2026-11-22.json` (SHA-256 prefix `8d1e6266b56dcd19`).
+- **Retry (D-092):** the 3 `lookup_error` names had reached the 60 s deadline (large registry documents). Looked up again with a 300 s deadline into `test_2026-11-22c` (RUN_RECORD SHA-256 prefix `97da8edfd03edcfe`): all found (numpy 153 versions, pymongo 177, pyorthomosaic 35). Read together with `test_2026-11-22`, the recorded timeouts give way to these answers (D-092). **The test side now has a recording for every valid name.**
+
+### Prompt 0.1 vs 0.2, qwen2.5:7b (2026-11-22; DEV, descriptive; scorer 0.2; from the response cache, no calls)
+
+- **Runs.** `qwen2.5:7b` (image `845dbda0ea48`) on the 100 dev pilot cases, both variants, both prompts, temperature 0, 8,192-token context, every snapshot folder. Two copies of the 0.1 generator ran at the same time for part of the run (a process left over from a session restart), so 13 (case, variant) pairs were generated twice; scoring uses the cached answer per request, so this changes no result. Scored into `research/datasets/runs/pilot_local7b_p01_2026-11-22/qwen2.5_7b/` (`metrics.json` `f00182223068…`) and `pilot_local7b_p02_2026-11-22/qwen2.5_7b/` (`metrics.json` `946e34e92299…`). A stale re-score of `llama3.2:3b` in `pilot_local7b_p01_2026-11-22/llama3.2_3b/` came from a scoring script that ignored its model argument (fixed); it is not used.
+
+| Prompt | Scored | Passed | Failed (unsafe / claim / invalid) | No answer | Not scored | C4 withheld |
+|---|---|---|---|---|---|---|
+| 0.1 | 99 | 39 | 16 (10 / 6 / 0) | 44 | 1 | 20 |
+| 0.2 | 99 | 55 | 2 (1 / 1 / 0) | 42 | 1 | 6 |
+
+- **McNemar exact on passed:** 3 cases only under 0.1, 19 only under 0.2, p = 0.00086. C3 unsafe 10 to 1.
+- **D-076 (c) applied:** passed 39 to 55, C3 unsafe 10 to 1: **prompt 0.2**.
+- **Reading.** Most "no answer" results are abstentions on malicious cases (36 of 53 under 0.2); coverage, not safety, is this model's weak point. Benign 23 of 23 passed under both prompts.
+

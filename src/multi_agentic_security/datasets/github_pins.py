@@ -77,7 +77,8 @@ def urllib_get(url: str, headers: Mapping[str, str], timeout: float) -> tuple[in
 
 class GitHubClient:
     """Rate-limit aware GET client. Search calls are spaced (``search_interval_s``); an exhausted limit waits for the
-    reset time it reports; a secondary limit (403/429 with Retry-After) waits and retries a bounded number of times."""
+    reset time it reports; a secondary limit (403/429 with Retry-After) waits and retries a bounded number of times; a dropped connection is
+    retried with backoff (15, 30, 60, 120 s) and stays `connection_error` when the retries run out (D-079)."""
 
     def __init__(self, *, transport: Optional[Transport] = None, sleep: Callable[[float], None] = time.sleep,
                  clock: Callable[[], float] = time.time, search_interval_s: float = 2.2, retries: int = 4,
@@ -103,7 +104,14 @@ class GitHubClient:
                 wait = self._search_gap - (self._clock() - self._last_search)
                 if wait > 0:
                     self._sleep(wait)
-            status, headers, body = self._t(url, self._headers(raw), self._timeout)
+            try:
+                status, headers, body = self._t(url, self._headers(raw), self._timeout)
+            except GitHubError as exc:                         # D-079: a dropped connection is transient
+                self.calls += 1
+                if exc.code != "connection_error" or attempt >= self._retries:
+                    raise
+                self._sleep(min(15.0 * 2 ** attempt, 300.0))    # 15, 30, 60, 120 s with the default 4 retries
+                continue
             self.calls += 1
             if search:
                 self._last_search = self._clock()
@@ -129,7 +137,9 @@ class GitHubClient:
             try:
                 return json.loads(body.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
-                raise GitHubError("invalid_response") from None
+                if attempt >= self._retries:                   # D-081: a garbled 200 body is retried, then a failure
+                    raise GitHubError("invalid_response") from None
+                self._sleep(min(15.0 * 2 ** attempt, 300.0))
         raise GitHubError("retries_exhausted")
 
 
@@ -150,14 +160,15 @@ def _repo_row(item: dict) -> dict:
     lic = item.get("license") or {}
     return {"full_name": item["full_name"], "stars": int(item.get("stargazers_count") or 0),
             "created_at": item.get("created_at"), "default_branch": item.get("default_branch"),
-            "license": lic.get("spdx_id"), "fork": bool(item.get("fork")), "archived": bool(item.get("archived"))}
+            "license": lic.get("spdx_id"), "fork": bool(item.get("fork")), "archived": bool(item.get("archived")),
+            "pushed_at": item.get("pushed_at")}
 
 
 def search_window(client: GitHubClient, lo: date, hi: date, query: str = QUERY) -> list[dict]:
     """Every repository created in [lo, hi]; splits the window while the result count is above the cap."""
     q = f"{query} created:{lo.isoformat()}..{hi.isoformat()}"
-    first = client.get("/search/repositories", {"q": q, "per_page": 100, "page": 1, "sort": "stars", "order": "desc"},
-                       search=True)
+    incomplete = []
+    first = _search_page(client, q, 1, incomplete)
     total = int(first.get("total_count") or 0)
     if total > SEARCH_CAP and lo < hi:
         mid = lo + (hi - lo) // 2
@@ -165,12 +176,25 @@ def search_window(client: GitHubClient, lo: date, hi: date, query: str = QUERY) 
     rows = [_repo_row(i) for i in first.get("items") or []]
     pages = min((min(total, SEARCH_CAP) + 99) // 100, 10)
     for page in range(2, pages + 1):
-        r = client.get("/search/repositories", {"q": q, "per_page": 100, "page": page, "sort": "stars", "order": "desc"},
-                       search=True)
+        r = _search_page(client, q, page, incomplete)
         rows += [_repo_row(i) for i in r.get("items") or []]
     if total > SEARCH_CAP:                                     # a single day above the cap: recorded, not hidden
         rows.append({"full_name": None, "truncated_window": [lo.isoformat(), hi.isoformat()], "total_count": total})
+    if incomplete:                                             # D-081: GitHub timed out on a page: recorded, not hidden
+        rows.append({"full_name": None, "incomplete_window": [lo.isoformat(), hi.isoformat()], "pages": incomplete})
     return rows
+
+
+def _search_page(client: GitHubClient, q: str, page: int, incomplete: list, tries: int = 3) -> dict:
+    """One search page; a page GitHub marks ``incomplete_results`` (its search timed out) is requested again, up to
+    ``tries`` times; if it stays incomplete the last answer is used and the page number is added to ``incomplete``."""
+    for _ in range(tries):
+        r = client.get("/search/repositories", {"q": q, "per_page": 100, "page": page, "sort": "stars", "order": "desc"},
+                       search=True)
+        if not r.get("incomplete_results"):
+            return r
+    incomplete.append(page)
+    return r
 
 
 def build_frame(client: GitHubClient, windows: Iterable[tuple[date, date]], out: Path, *, query: str = QUERY) -> dict:
@@ -252,6 +276,15 @@ def months_before(t: date, months: int) -> date:
     while m <= 0:
         y, m = y - 1, m + 12
     return date(y, m, min(t.day, calendar.monthrange(y, m)[1]))
+
+
+def frame_query(cutoffs: Iterable[date], query: str = QUERY) -> str:
+    """D-080: the search query restricted to repositories pushed on or after the earliest activity floor
+    (24 months before the earliest cut-off). A repository last pushed before that floor has no default-branch commit
+    inside any cut-off's activity window, so it can never be eligible; leaving it out shrinks the frame without
+    changing the eligible population or the seeded band order among eligible repositories."""
+    floor = min(months_before(c, ACTIVE_MONTHS) for c in cutoffs)
+    return f"{query} pushed:>={floor.isoformat()}"
 
 
 def snapshot(client: GitHubClient, repo: dict, cutoff: date) -> dict:

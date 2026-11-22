@@ -1,6 +1,6 @@
 # Annotation guidelines
 
-Status 2026-11-13: **draft for the owner's confirmation.** Tasks approved in D-033 and D-037. No annotation has started.
+Status 2026-11-22: **version 1.0, confirmed (D-083).** Tasks approved in D-033 and D-037. No annotation has started.
 
 These guidelines are fixed before any annotation begins. A change after annotation has started is recorded with its date, and the affected items are re-annotated.
 
@@ -101,3 +101,22 @@ These guidelines are fixed before any annotation begins. A change after annotati
 ## 6. Storage
 
 Annotation files are small text files with: item ID, source record IDs, annotator ID, label fields, guideline version, timestamp. They contain no raw dataset content beyond identifiers. Whether they are published with the paper is decided when the sources' licences have been checked.
+
+## 7. Annotators, agreement gate and order (D-083)
+
+| Item | Rule |
+|---|---|
+| Annotator 1 | The owner |
+| Annotator 2 | A second person with at least one year of Python experience who has not seen any results (to be named). Without one, rule 2 of section 1 applies |
+| Pilot gate | After the 20-item pilot, Cohen's kappa on the main field (Task A label, Task C label, Task D Q5) must be at least 0.61. If it is lower, the wording is fixed and the pilot is repeated, at most twice. The final value is reported either way |
+| Reporting | Raw agreement, Cohen's kappa with a 95 % bootstrap interval over items (2,000 resamples, seed 20261114) and the count of every label. The counts are reported because kappa falls when one label is rare |
+| Order | Tasks A and B: any time. Task C: on development outputs, before the protocol is frozen. Task D: after the held-out runs |
+
+### Worked examples for Task D (illustrative, not study items)
+
+| Shown | Q1 | Q2 | Q3 | Q4 | Q5 |
+|---|---|---|---|---|---|
+| Finding: package listed as malicious. Recommendation: `remove`, reason cites the malicious report | yes | not applicable | all | no free text | accept |
+| Finding: version 2.0 inside an advisory's affected range. Recommendation: `upgrade` to 2.5, which the same advisory also lists as affected | yes | no | some | no | reject (risky target) |
+| Finding: typosquat of a known package. Recommendation: `keep`, "widely used and safe" | no | not applicable | none | yes | reject (wrong action) |
+| Finding: vulnerable version. Recommendation: `abstain` | rate Q1 | - | - | - | rate Q5 |

@@ -105,3 +105,31 @@ def test_results_are_written_once_with_hashes(tmp_path):
 def test_llm_variant_without_a_client_is_a_configuration_error():
     with pytest.raises(ValueError):
         run_evaluation(CASES[:1], env(), ["LLM-G"])
+
+
+def test_sampled_pins_become_test_cases_with_package_clusters_for_intervals():
+    """D-044 item 8 to D-084, end to end: requirement texts from two repositories -> vulnerable cases ->
+    split -> R0 evaluation. One repository links both packages into one split group, but the metrics count
+    two package clusters (the resampling unit), and with fewer than 10 no interval is given (D-088)."""
+    from datetime import date
+    from multi_agentic_security.evaluation import interval_clusters, split_three_way, vulnerable_cases_from_pins
+    from multi_agentic_security.evaluation.cases import merge_duplicate_cases
+    store = EvidenceStore.load(FIX / "evidence" / "v1")
+    texts = {"o/a": "requests==2.31.0\ncompromised-lib==1.2.0\nnumpy>=1\n", "o/b": "# pins\nrequests==2.31.0\n-e .\n"}
+    found = []
+    for repo, text in texts.items():
+        cs, counts = vulnerable_cases_from_pins(text, repo=repo, store=store, cutoff_date=date(2026, 10, 1))
+        found += cs
+        assert counts["not_exact"] == (1 if repo == "o/a" else 0)
+    cases = [Case(**{**c.__dict__, "split_hint": "test"}) for c in merge_duplicate_cases(found)]
+    assert sorted((c.name, c.weight) for c in cases) == [("compromised-lib", 1), ("requests", 2)]
+    parts = split_three_way(cases)
+    assert len(parts["test"]) == 2 and not parts["train"] and not parts["dev"]
+    assert len({c.group for c in parts["test"]}) == 1 and len(set(interval_clusters(parts["test"]).values())) == 2
+    late = vulnerable_cases_from_pins(texts["o/a"], repo="o/a", store=store, cutoff_date=date(2025, 1, 1))[0]
+    assert [c.name for c in late] == ["requests"]            # an advisory published after T makes no case at T
+    res = run_evaluation(parts["test"], env(), ["R0"], n_boot=50)
+    assert res.errors == [] and res.metrics["C1"]["vulnerable"]["cases"] == 2
+    u = res.metrics["C1"]["vulnerable"]["unsupported_claims"]
+    assert u["clusters"] == 2                                # package clusters, not the single split group (D-084)
+    assert u["case_mean_bootstrap"][1] is None               # below the 10-cluster floor: no interval (D-088)

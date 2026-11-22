@@ -196,6 +196,77 @@ def test_rate_limits_wait_and_retry():
     assert e.value.code == "http_403"
 
 
+def test_connection_errors_are_retried_with_backoff_then_stay_a_failure():
+    """D-079 regression: a dropped connection ended the frame build; it is now retried a bounded number of times."""
+    waits, n = [], {"i": 0}
+
+    def flaky(url, headers, timeout):
+        n["i"] += 1
+        if n["i"] <= 2:
+            raise G.GitHubError("connection_error")
+        return 200, {}, b'{"ok": true}'
+    c = G.GitHubClient(transport=flaky, sleep=waits.append, clock=lambda: 0.0)
+    assert c.get("/x") == {"ok": True} and waits == [15.0, 30.0] and c.calls == 3
+
+    def down(url, headers, timeout):
+        raise G.GitHubError("connection_error")
+    waits.clear()
+    d = G.GitHubClient(transport=down, sleep=waits.append, clock=lambda: 0.0, retries=4)
+    with pytest.raises(G.GitHubError) as e:
+        d.get("/x")
+    assert e.value.code == "connection_error" and waits == [15.0, 30.0, 60.0, 120.0] and d.calls == 5
+
+    def other(url, headers, timeout):
+        raise G.GitHubError("missing_token")
+    waits.clear()
+    with pytest.raises(G.GitHubError) as e:
+        G.GitHubClient(transport=other, sleep=waits.append, clock=lambda: 0.0).get("/x")
+    assert e.value.code == "missing_token" and waits == []     # only connection errors are retried
+
+
+def test_a_garbled_200_body_is_retried_then_stays_a_failure():
+    """D-081 regression: one non-JSON success body ended the filtered frame build."""
+    waits, n = [], {"i": 0}
+
+    def answer(url):
+        n["i"] += 1
+        return (200, b"<html>truncated") if n["i"] == 1 else (200, {"ok": True})
+    assert G.GitHubClient(transport=Fake([("/x", answer)]), sleep=waits.append, clock=lambda: 0.0).get("/x") == {"ok": True}
+    assert waits == [15.0]
+    waits.clear()
+    bad = G.GitHubClient(transport=Fake([("/y", (200, b"not json"))]), sleep=waits.append, clock=lambda: 0.0, retries=2)
+    with pytest.raises(G.GitHubError) as e:
+        bad.get("/y")
+    assert e.value.code == "invalid_response" and waits == [15.0, 30.0] and bad.calls == 3
+
+
+def test_incomplete_search_pages_are_retried_and_otherwise_recorded():
+    """D-081: GitHub's incomplete_results flag is never accepted silently."""
+    n = {"i": 0}
+
+    def flaky(url):
+        n["i"] += 1
+        return 200, {"total_count": 1, "incomplete_results": n["i"] == 1, "items": [item(1)]}
+    rows = G.search_window(client(Fake([("/search/repositories", flaky)])), date(2020, 1, 1), date(2020, 1, 31))
+    assert [r["full_name"] for r in rows] == ["o/r1"] and n["i"] == 2
+    always = Fake([("/search/repositories", (200, {"total_count": 1, "incomplete_results": True, "items": [item(1)]}))])
+    rows = G.search_window(client(always), date(2020, 2, 1), date(2020, 2, 29))
+    assert rows[0]["full_name"] == "o/r1" and len(always.calls) == 3
+    assert rows[-1] == {"full_name": None, "incomplete_window": ["2020-02-01", "2020-02-29"], "pages": [1]}
+
+
+def test_frame_query_adds_the_earliest_activity_floor():
+    """D-080: only repositories that can pass the 24-month activity rule at some cut-off are searched."""
+    q = G.frame_query([date(2025, 9, 1), date(2024, 12, 1)])
+    assert q == G.QUERY + " pushed:>=2022-12-01"
+    assert G.frame_query([date(2024, 3, 31)]).endswith("pushed:>=2022-03-31")
+
+
+def test_repo_rows_keep_the_push_date():
+    row = G._repo_row({"full_name": "a/b", "stargazers_count": 12, "pushed_at": "2024-01-02T00:00:00Z"})
+    assert row["pushed_at"] == "2024-01-02T00:00:00Z" and row["stars"] == 12
+
+
 def test_search_calls_are_spaced():
     waits, t = [], {"now": 0.0}
     c = G.GitHubClient(transport=Fake([("/search/repositories", (200, {"total_count": 0, "items": []}))]),

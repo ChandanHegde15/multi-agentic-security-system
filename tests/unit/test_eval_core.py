@@ -373,3 +373,90 @@ def test_scorer_and_statistics_import_no_agent():
                 [node.module or ""] if isinstance(node, ast.ImportFrom) else []
             assert not any(m.startswith("multi_agentic_security.agents") or m.startswith("multi_agentic_security.pipeline")
                            for m in mods), (name, mods)
+
+
+# --------------------------------------------------------------------------- D-084 interval clusters
+
+def test_interval_clusters_link_packages_and_targets_but_not_repositories():
+    from multi_agentic_security.evaluation import interval_clusters
+    from dataclasses import replace
+    cs = [mk("web", decl="web==1.0", repos=("o/a",)), replace(mk("web", decl="web==1.1", repos=("o/b",)), case_id="case-web-1.1"),
+          mk("lib", decl="lib==2.0", repos=("o/a",)),                             # shares a repository with web 1.0 only
+          mk("wbe", family="typosquat", decl="wbe", target="Web")]                 # stated target, normalized
+    cl = interval_clusters(cs)
+    assert cl[cs[0].case_id] == cl[cs[1].case_id] == cl[cs[3].case_id]           # same package / stated target
+    assert cl[cs[2].case_id] != cl[cs[0].case_id]                                # a repository alone does not link
+    g = {c.case_id: c.group for c in assign_groups(cs)}
+    assert g[cs[2].case_id] == g[cs[0].case_id]                                  # the split groups still do
+
+
+def test_aggregate_resamples_package_clusters_not_split_groups():
+    """Many packages pinned together in one repository form one split group; the claim interval must
+    still exist (D-084), because the resampling unit is the package."""
+    mal = rec(F.MALICIOUS, "pypi", "evil")
+    names = [f"p{i}" for i in range(12)]                                        # D-088: at least 10 clusters
+    c = ctx(mal, answers={("pypi", n): found(n, ["1"]) for n in names})
+    cs = assign_groups([mk(n, family="malicious", decl=f"{n}==1", repos=("one/repo",)) for n in names])
+    assert len({x.group for x in cs}) == 1
+    rows = [row(x, "C3", R("keep", claims=[C("is_vulnerable", x.name, *(() if i % 2 else ("GHOST",)))]), None, c)
+            for i, x in enumerate(cs)]                                           # every claim unsupported: no citation or a missing record
+    rows += [row(x, "C3", R("keep", claims=[C("no_evidence_found", x.name)]), None, c) for x in cs[:3]]
+    ci = aggregate(rows, n_boot=200)["C3"]["malicious"]["unsupported_claims"]["case_mean_bootstrap"]
+    assert ci[0] is not None and ci[1] is not None and ci[2] is not None and ci[1] < ci[2]
+
+
+# --------------------------------------------------------------------------- D-086 package-level stratified split
+
+def test_assign_groups_can_ignore_repository_links():
+    cs = [mk("web", decl="web==1.0", repos=("o/a",)), mk("lib", decl="lib==2.0", repos=("o/a",))]
+    assert len({c.group for c in assign_groups(cs)}) == 1
+    assert len({c.group for c in assign_groups(cs, link_repositories=False)}) == 2
+
+
+def test_stratified_group_sides_hits_the_shares_and_keeps_groups_whole():
+    from multi_agentic_security.evaluation import stratified_group_sides
+    sizes = {f"g{i}": n for i, n in enumerate([40, 30, 10, 8, 6, 5, 4, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])}
+    sides = stratified_group_sides(sizes)
+    assert set(sides) == set(sizes) and stratified_group_sides(sizes) == sides          # every group once; deterministic
+    got = {s: sum(n for g, n in sizes.items() if sides[g] == s) for s in ("train", "dev", "test")}
+    total = sum(sizes.values())
+    assert abs(got["train"] - 0.6 * total) <= 3 and abs(got["dev"] - 0.2 * total) <= 3 and abs(got["test"] - 0.2 * total) <= 3
+    assert {sides[g] for g in ("g0", "g1", "g2", "g3")} == {"train", "dev", "test"}      # large groups reach every side
+
+
+def test_stratified_group_sides_respects_forced_sides_and_counts_them():
+    from multi_agentic_security.evaluation import stratified_group_sides
+    sizes = {"old": 20, "a": 10, "b": 10, "c": 10, "d": 10, "e": 10}
+    sides = stratified_group_sides(sizes, forced={"old": "dev"})
+    assert sides["old"] == "dev" and sum(n for g, n in sizes.items() if sides[g] == "dev") == 20   # dev is already full
+    with pytest.raises(ValueError):
+        stratified_group_sides(sizes, forced={"zzz": "dev"})
+    with pytest.raises(ValueError):
+        stratified_group_sides(sizes, fractions={"train": 0.5, "dev": 0.5})
+
+
+# --------------------------------------------------------------------------- D-088 HYP4 bound and cluster floor
+
+def test_hyp4_bound_uses_the_cluster_bootstrap_and_never_proves_by_zero_events():
+    cl = {f"c{i}": f"pkg{i}" for i in range(150)}
+    zero = {k: 0.0 for k in cl}
+    d, hi, how = stats.hyp4_upper_bound(zero, zero, cl)
+    assert d == 0 and how == "wilson_one_sided_95" and 0.0 < hi < stats.HYP4_MARGIN          # 150 clean pairs: about 1.8 points
+    assert stats.non_inferior(hi, stats.HYP4_MARGIN) is True
+    small = {k: 0.0 for k in list(cl)[:60]}
+    _, hi60, _ = stats.hyp4_upper_bound(small, small, cl)
+    assert stats.non_inferior(hi60, stats.HYP4_MARGIN) is False                              # 60 pairs: inconclusive
+    worse = dict(zero, **{f"c{i}": 1.0 for i in range(10)})                                   # 10 extra unsafe answers
+    d2, hi2, how2 = stats.hyp4_upper_bound(worse, zero, cl, n_boot=300)
+    assert how2 == "cluster_bootstrap_90" and d2 == pytest.approx(10 / 150) and hi2 > stats.HYP4_MARGIN
+    assert stats.hyp4_upper_bound({}, {}, {}) == (None, None, "no_pairs")
+
+
+def test_claim_interval_needs_ten_clusters():
+    mal = rec(F.MALICIOUS, "pypi", "evil")
+    names = [f"q{i}" for i in range(5)]
+    c = ctx(mal, answers={("pypi", n): found(n, ["1"]) for n in names})
+    rows = [row(mk(n, family="malicious", decl=f"{n}==1"), "C3", R("keep", claims=[C("is_vulnerable", n)]), None, c) for n in names]
+    u = aggregate(rows, n_boot=50)["C3"]["malicious"]["unsupported_claims"]
+    assert u["clusters"] == 5 and u["case_mean_bootstrap"][1] is None and u["k"] == 5        # Wilson only, marked by the count
+

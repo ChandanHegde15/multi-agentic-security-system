@@ -36,6 +36,10 @@ class MultiSnapshotClient:
         found = [(c, o) for c in self.clients if (o := c.lookup(ecosystem, name_normalized)) is not None]
         if not found:
             return None
+        answered = [(c, o) for c, o in found if o.status != "lookup_error"]
+        if answered and len(answered) < len(found):
+            found = answered          # D-092: a recorded failure (timeout, refused connection) is no answer, not a
+                                      # competing one; a folder with an answer supersedes it. Answers still must agree.
         first = found[0][1]
         if len(found) == 1 or all(_same(first, o) for _, o in found[1:]):
             return first

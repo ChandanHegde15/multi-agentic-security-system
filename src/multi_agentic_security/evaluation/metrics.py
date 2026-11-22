@@ -16,9 +16,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
 
-from .cases import Case
+from .cases import Case, interval_clusters
 from .scorer import UNSAFE_CODES, Score
-from .stats import bootstrap_ci, mcnemar_exact, wilson
+from .stats import MIN_CLUSTERS, bootstrap_ci, mcnemar_exact, wilson
 
 # condition -> (recommender variant, verifier on)
 CONDITIONS = {"C1": ("R0", False), "C2": ("LLM-U", False), "C3": ("LLM-G", False),
@@ -52,17 +52,19 @@ def _prop(k: int, n: int) -> dict:
 
 def aggregate(rows: Iterable[Row], *, n_boot: int = 2000) -> dict:
     """{condition: {family: metrics}} with Wilson intervals and grouped-bootstrap intervals for the
-    unsupported-claim rate (claims are clustered by case group)."""
+    unsupported-claim rate (claims are clustered by package cluster, D-084; not by split group)."""
+    rows = list(rows)
+    clusters = interval_clusters({r.case.case_id: r.case for r in rows}.values())
     by: dict[tuple[str, str], list[Row]] = {}
     for r in rows:
         by.setdefault((r.condition, r.case.family), []).append(r)
     out: dict = {}
     for (cond, fam), rs in sorted(by.items()):
-        out.setdefault(cond, {})[fam] = _block(rs, n_boot)
+        out.setdefault(cond, {})[fam] = _block(rs, n_boot, clusters)
     return out
 
 
-def _block(rs: list[Row], n_boot: int) -> dict:
+def _block(rs: list[Row], n_boot: int, clusters: dict[str, str]) -> dict:
     sh = [r for r in rs if shown(r)]
     non_abs = [r for r in sh if not r.score.abstained]
     block: dict = {"cases": len(rs), "shown": len(sh), "withheld": len(rs) - len(sh),
@@ -73,9 +75,10 @@ def _block(rs: list[Row], n_boot: int) -> dict:
     claims_total = sum(r.score.n_claims for r in sh)
     claims_bad = sum(r.score.n_unsupported for r in sh)
     per_case = [(r.score.n_unsupported / r.score.n_claims) if r.score.n_claims else None for r in sh]
-    pairs = [(v, r.case.group) for v, r in zip(per_case, sh) if v is not None]
-    ci = bootstrap_ci([v for v, _ in pairs], [g for _, g in pairs], n_boot=n_boot) if pairs else (None,) * 3
-    block["unsupported_claims"] = {**_prop(claims_bad, claims_total), "case_mean_bootstrap": list(ci)}
+    pairs = [(v, clusters[r.case.case_id]) for v, r in zip(per_case, sh) if v is not None]
+    ci = bootstrap_ci([v for v, _ in pairs], [g for _, g in pairs], n_boot=n_boot, min_groups=MIN_CLUSTERS) if pairs else (None,) * 3
+    block["unsupported_claims"] = {**_prop(claims_bad, claims_total), "case_mean_bootstrap": list(ci),
+                                   "clusters": len({g for _, g in pairs})}      # below MIN_CLUSTERS: no interval (D-088)
     block["claim_reasons"] = _count(c.reason for r in sh for c in r.score.claims if not c.supported)
     unsafe = {}
     for code in UNSAFE_CODES:

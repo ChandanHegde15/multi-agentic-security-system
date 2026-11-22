@@ -96,9 +96,10 @@ def split_of(group: str, *, test_fraction: float = 0.5, seed: int = SPLIT_SEED) 
     return "test" if h < test_fraction else "dev"
 
 
-def assign_groups(cases: Iterable[Case]) -> list[Case]:
+def assign_groups(cases: Iterable[Case], *, link_repositories: bool = True) -> list[Case]:
     """Give every case the group key of its connected component: cases that share a package, a
-    typosquat target or a repository end up in one group (union-find)."""
+    typosquat target or (with ``link_repositories``, the default) a repository end up in one group
+    (union-find). ``link_repositories=False`` is the package-level grouping of D-086."""
     cases = list(cases)
     parent: dict[str, str] = {}
 
@@ -118,11 +119,36 @@ def assign_groups(cases: Iterable[Case]) -> list[Case]:
         keys = [f"pkg:{c.ecosystem}:{c.name}"]
         if c.expected_target:
             keys.append(f"pkg:{c.ecosystem}:{normalize_name(c.ecosystem, c.expected_target)}")
-        keys += [f"repo:{r}" for r in c.repos]
+        if link_repositories:
+            keys += [f"repo:{r}" for r in c.repos]
         find(keys[0])
         for k in keys[1:]:
             union(keys[0], k)
     return [Case(**{**c.__dict__, "group": find(f"pkg:{c.ecosystem}:{c.name}")}) for c in cases]
+
+
+def interval_clusters(cases: Iterable[Case]) -> dict[str, str]:
+    """Resampling unit for intervals (D-084): case ID -> cluster key. Cases are linked by package and by a
+    typosquat's stated target, NOT by repository: a case gives the system a one-line manifest, so answers can
+    depend on one another only through the package. The split groups (``assign_groups``) are unchanged and
+    still decide the sides; repository links there would merge most sampled vulnerable cases into one group."""
+    cases = list(cases)
+    parent: dict[str, str] = {}
+
+    def find(x: str) -> str:
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for c in cases:
+        own = find(f"pkg:{c.ecosystem}:{c.name}")
+        if c.expected_target:
+            other = find(f"pkg:{c.ecosystem}:{normalize_name(c.ecosystem, c.expected_target)}")
+            if own != other:
+                parent[max(own, other)] = min(own, other)
+    return {c.case_id: find(f"pkg:{c.ecosystem}:{c.name}") for c in cases}
 
 
 def split_cases(cases: Iterable[Case], *, test_fraction: float = 0.5, seed: int = SPLIT_SEED) -> dict[str, list[Case]]:
@@ -171,6 +197,32 @@ def split_three_way(cases: Iterable[Case], fractions: dict = THREE_WAY, seed: in
     return out
 
 
+VULNERABLE_FRACTIONS = {"train": 0.60, "dev": 0.20, "test": 0.20}     # D-086
+
+
+def stratified_group_sides(sizes: dict[str, int], fractions: dict = VULNERABLE_FRACTIONS,
+                           forced: Optional[dict[str, str]] = None, seed: int = SPLIT_SEED) -> dict[str, str]:
+    """Side per group, stratified by group size (D-086): forced groups keep their side; the others are
+    taken largest first (ties broken by a seeded hash of the key) and each goes to the side furthest below
+    its target share of cases. Whole groups only, so no group is ever on two sides; deterministic."""
+    if set(fractions) != set(SPLITS) or any(v < 0 for v in fractions.values()) or abs(sum(fractions.values()) - 1) > 1e-9:
+        raise ValueError("fractions must name train, dev and test, be >= 0 and sum to 1")
+    forced = dict(forced or {})
+    if any(s not in SPLITS for s in forced.values()) or not set(forced) <= set(sizes):
+        raise ValueError("forced sides must name known groups and sides")
+    total = sum(sizes.values())
+    have = {s: 0 for s in SPLITS}
+    for g, s in forced.items():
+        have[s] += sizes[g]
+    out = dict(forced)
+    tie = lambda g: hashlib.sha256(f"{seed}{g}".encode("utf-8")).hexdigest()
+    for g in sorted((g for g in sizes if g not in forced), key=lambda g: (-sizes[g], tie(g))):
+        side = max((s for s in SPLITS if fractions[s] > 0), key=lambda s: (fractions[s] * total - have[s], -SPLITS.index(s)))
+        out[g] = side
+        have[side] += sizes[g]
+    return out
+
+
 def mark_eval_only(cases: Iterable[Case], names: Iterable[str]) -> list[Case]:
     """Force the test side for every case whose package name is in ``names`` (LibHalluBench-derived names and
     the names it shares with the malicious and typosquat lists, FOUNDATION_REVIEW section 3)."""
@@ -183,13 +235,13 @@ def mark_eval_only(cases: Iterable[Case], names: Iterable[str]) -> list[Case]:
 
 
 def verify_splits(splits: dict[str, list[Case]], *, check_seed: bool = False, fractions: dict = THREE_WAY,
-                  seed: int = SPLIT_SEED) -> list[str]:
+                  seed: int = SPLIT_SEED, link_repositories: bool = True) -> list[str]:
     """Problems found in a split (empty list = clean): unknown sides, stale group keys (recomputed here from
     the shared packages, targets and repositories), shared cases, shared groups, broken forced sides and,
     with ``check_seed``, any case whose side differs from ``split_three_way`` on the same cases (D-071 R-08)."""
     problems: list[str] = [f"unknown side {s!r}" for s in splits if s not in SPLITS]
     every = [c for side in SPLITS for c in splits.get(side, [])]
-    fresh = {c.case_id: c.group for c in assign_groups(every)}
+    fresh = {c.case_id: c.group for c in assign_groups(every, link_repositories=link_repositories)}
     stored: dict[str, set] = {}
     for c in every:
         stored.setdefault(fresh[c.case_id], set()).add(c.group)
