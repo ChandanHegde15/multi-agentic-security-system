@@ -1,0 +1,14 @@
+{
+ "format": "protocol_freeze/1",
+ "status": "frozen",
+ "decision": "D-097",
+ "frozen_at": "2026-11-23T07:10:27+00:00",
+ "approved_by": "owner",
+ "protocol": "docs/research/EVALUATION_PROTOCOL.md",
+ "protocol_sha256": "336e80c03262954ab81e2b54910488317e8814d1d4461821bb52196e4851f7b1",
+ "plan": "docs/research/heldout_plan.json",
+ "plan_sha256": "18feba67446e6369ea26a694595aab97a8a873d82c7c073e8ec68b3525a73ed6",
+ "score_gate": "docs/research/TASK_C_RESULT.json (absent at freeze: scoring closed)",
+ "prompt_0_2_system_sha256": "9fd5e43d01be9fb0327f726d179b43c69af5f299a834991c397bb15fe5138233",
+ "hash_rule": "sha256 of the file with CRLF read as LF"
+}

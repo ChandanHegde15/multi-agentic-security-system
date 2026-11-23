@@ -1,6 +1,8 @@
 # Annotation guidelines
 
-Status 2026-11-22: **version 1.0, confirmed (D-083).** Tasks approved in D-033 and D-037. No annotation has started.
+Status 2026-11-23: **version 1.1 (D-093).** Version 1.0 was confirmed on 2026-11-22 (D-083). Tasks approved in D-033 and D-037. No annotation had started when version 1.1 was written.
+
+**Change log.** 1.1 (2026-11-23, before any annotation): Task C `supported` now requires *every* cited record to state the claim, as the scorer and the verifier do (D-059, `SYSTEM_ARCHITECTURE.md`); version 1.0 said "at least one". Task C scope, material and sampling are now fixed (section 4).
 
 These guidelines are fixed before any annotation begins. A change after annotation has started is recorded with its date, and the affected items are re-annotated.
 
@@ -55,19 +57,25 @@ These guidelines are fixed before any annotation begins. A change after annotati
 
 **Purpose.** Check that the program that marks a structured claim as supported or unsupported is correct.
 
-**Material.** The structured claim and the full text of each evidence record it cites. The program's verdict is hidden.
+**Material.** The structured claim and each evidence record it cites (details below). The program's verdict is hidden.
 
 **Labels**
 
 | Label | Use when |
 |---|---|
-| `supported` | At least one cited record exists and states what the claim says |
+| `supported` | Every cited record exists and states what the claim says (same package, the claim's family, and it covers the version the claim names) |
 | `unsupported_no_citation` | The claim cites nothing |
 | `unsupported_missing_record` | A cited ID does not exist in the evidence store |
-| `unsupported_wrong_content` | The cited records exist but do not state what is claimed |
+| `unsupported_wrong_content` | The cited records exist, but at least one does not state what is claimed |
 | `cannot_decide` | The record is ambiguous |
 
-**Sampling.** Stratified by claim type, family and the program's verdict, so that both verdicts are well represented.
+When more than one `unsupported` label fits, the first in the table order is used.
+
+**Scope (D-093).** The six claim types that cite evidence: `is_reported_malicious`, `is_compromised_version`, `is_typosquat_of`, `is_vulnerable`, `fixed_in`, `report_withdrawn`. The types `is_nonexistent` and `no_evidence_found` cite nothing by design; the program re-derives them from the registry snapshot and the whole evidence store, which an annotator cannot check from cited records. They are covered by unit tests and are reported as outside the audit.
+
+**Material shown.** For each claim: its type, package, object (version or imitated package) and a plain sentence; for each cited ID, the fields of the normalized evidence record (family, package, version scope and version or range, imitated package, publication date, source and source record ID), or "not found in the evidence store". For `fixed_in`, a one-line note says whether the registry snapshot lists the fixed version as a release. The audit checks the matcher against the normalized records; whether a normalized record matches its upstream source is an adapter question and outside Task C. The program also checks `fixed_in` against advisories that are not cited; annotators judge only the cited records and the note.
+
+**Sampling (D-093).** Pool: every structured claim of the six types in the development pilot outputs (100 cases, prompt `a4-prompt/0.2`, LLM-U and LLM-G, every model), re-derived from the response caches without calls. Identical claims (same type, package, object and cited IDs) are one item, because the program's verdict depends only on these. 200 items: 100 the program marks supported and 100 unsupported. Supported items are spread over claim types; unsupported items over claim type and the label the guideline expects for the program's reason, so that the rare "wrong content" claims are all taken first. Each cell gets an equal share capped by its size, with the rest redistributed; inside a cell, items rotate over case family and program reason. Seed 20261123. The 20 pilot items are spread over the cells and are part of the 200. Model, variant, case and verdict are hidden and the order is shuffled; the hidden key is stored in a separate folder.
 
 **Use.** Agreement between the program and the resolved human label is reported per claim type. A claim type with poor agreement is fixed and re-audited before the main runs.
 

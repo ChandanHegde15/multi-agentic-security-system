@@ -132,6 +132,60 @@ def test_cache_ignores_failures_and_unreadable_entries(tmp_path):
     assert c.generate(req).text == "ok" and c.inner.n == 3    # unreadable entry is a miss
 
 
+class TruncatedThenRepaired:
+    """First request of each dependency: an answer cut off at the output limit; the repair request gets a valid one."""
+    provider, model = "fake", "cut-1"
+
+    def __init__(self):
+        self.calls = 0
+
+    def generate(self, request):
+        self.calls += 1
+        if len(request.messages) == 1:
+            return LLMResponse(text='{"action": "ke', stop_reason="length")
+        return LLMResponse(text='{"action": "keep"}')
+
+
+def test_a_cache_only_replay_reproduces_a_repaired_cut_off_answer(tmp_path):
+    """D-094 regression: answers that stopped at the output limit were not cached, so a cache-only replay of a
+    run whose answer was repaired missed on the first request and turned an ok generation into llm_error."""
+    inner = TruncatedThenRepaired()
+    llm = CachingLLMClient(inner, tmp_path / "cache")
+    r1 = run_pipeline(cfg(tmp_path / "a", variant="LLM-G", llm=llm, response_store=MemoryResponseStore()))
+    recs1 = r1.report.recommendations.recommendations
+    assert inner.calls == 36 and {r.generation_status for r in recs1 if r.backend == "llm"} == {"ok"}
+    replay = CachingLLMClient(BudgetedLLMClient(TruncatedThenRepaired(), max_calls=0), tmp_path / "cache")
+    r2 = run_pipeline(cfg(tmp_path / "b", variant="LLM-G", llm=replay, response_store=MemoryResponseStore()))
+    recs2 = r2.report.recommendations.recommendations
+    assert replay.misses == 0 and replay.hits == 36, "a replay must follow the same attempt and repair path"
+    assert [(r.action, r.generation_status) for r in recs2] == [(r.action, r.generation_status) for r in recs1]
+
+
+def test_the_cache_keeps_every_answer_even_an_empty_cut_off_one(tmp_path):
+    from multi_agentic_security.agents.agent4_recommendation import LLMRequest
+
+    class Seq:
+        provider, model = "fake", "seq"
+
+        def __init__(self, answers):
+            self.answers, self.n = list(answers), 0
+
+        def generate(self, request):
+            self.n += 1
+            return self.answers.pop(0)
+    for stop in ("end", "length", "refusal"):
+        c = CachingLLMClient(Seq([LLMResponse(text="t", stop_reason=stop)]), tmp_path / stop)
+        req = LLMRequest(system="s", messages=(("user", stop),))
+        c.generate(req)
+        again = c.generate(req)
+        assert (again.text, again.stop_reason, c.hits, c.inner.n) == ("t", stop, 1, 1)
+    c = CachingLLMClient(Seq([LLMResponse(text="", stop_reason="length")]), tmp_path / "empty")
+    req = LLMRequest(system="s", messages=(("user", "e"),))
+    c.generate(req)          # gpt-oss can spend the whole limit on hidden reasoning: empty text, stop reason length
+    again = c.generate(req)
+    assert (again.text, again.stop_reason, c.hits, c.inner.n) == ("", "length", 1, 1)
+
+
 # --------------------------------------------------------------------------- guardrails
 
 @pytest.mark.parametrize("kw,code", [

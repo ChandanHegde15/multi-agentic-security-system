@@ -1,0 +1,542 @@
+% Paper draft, IEEE conference format (IEEEtran). Status: stable sections only.
+% Sections whose content depends on the held-out results, the full test lists or a fine-tuned model are
+% left as marked placeholders (search for "TO BE WRITTEN" and "TBD"). Every number in this file comes from
+% the frozen evaluation protocol, the case-build record or the evidence-store manifests, not from results.
+\documentclass[conference]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\begin{document}
+
+\title{Agentic Defense Against AI-Hallucinated Package Poisoning Using Multi-Agent Dependency Verification}
+
+\author{\IEEEauthorblockN{Chandan Hegde}
+\IEEEauthorblockA{\textit{Department and institution: TBD}\\
+City, Country: TBD}}
+
+\maketitle
+
+\begin{abstract}
+TO BE WRITTEN after the held-out results (one paragraph, 150--250 words: problem, gap, study design,
+headline test numbers, conclusion).
+\end{abstract}
+
+\begin{IEEEkeywords}
+Software supply chain security, package hallucination, large language models, dependency remediation,
+multi-agent systems, deterministic verification, typosquatting, malicious packages.
+\end{IEEEkeywords}
+
+% =====================================================================================================
+\section{Introduction}
+
+Large language models (LLMs) are now routinely asked which software package to install, which version to
+pin and how to fix a dependency that a scanner has flagged. Their answers are not reliable. Code-generating
+models recommend package names that do not exist in a substantial share of answers, and the same invented
+names recur across runs~\cite{spracklen2025}. Misspelled or invented library names in a developer's request
+are frequently accepted and propagated by the model~\cite{twist2026}. Because public registries such as PyPI
+and npm let anyone publish under an unclaimed name, an attacker who registers a hallucinated or imitated name
+can turn a model's mistake into an installation of malicious code~\cite{spracklen2025,raj2026,neupane2023}.
+The same risk exists when a model chooses a version: LLM-specified versions often carry known
+vulnerabilities~\cite{wang2026}, and automated agents have been observed selecting known-vulnerable versions
+when updating dependencies~\cite{singla2026}.
+
+Prior work has measured how often models invent package names~\cite{spracklen2025,krishna2025,twist2026} and
+how often they choose vulnerable versions when writing code~\cite{wang2026}. Much less is known about the step
+that follows detection: once a dependency has been flagged as malicious, typosquatted, vulnerable or
+nonexistent, \emph{is the remediation an LLM recommends safe, and are the reasons it gives supported by the
+evidence it cites?} A recommendation such as ``upgrade to version~$y$'' or ``replace with package~$z$'' is
+itself a new dependency decision and can introduce the very risk it is meant to remove. Its stated reasons can
+also cite advisories that do not exist or that say something else. To our knowledge, neither the per-claim
+evidence support of dependency remediation advice nor the safety of its recommended targets across these
+families has been measured.
+
+This paper reports an evaluation study of these two properties. We built a five-agent pipeline in which only
+one agent uses an LLM; the others parse manifests, collect evidence, derive findings and verify the
+recommendation deterministically. The verifier is isolated from the LLM: it re-derives every claim and every
+recommended target from a time-stamped evidence store and registry recordings before a recommendation may be
+delivered. The pipeline is a vehicle for the measurement; we do not claim its components as new, since
+multi-agent designs, evidence grounding, registry lookups and verifier stages all have
+precedents~\cite{toda2025,zahan2025,zeshan2026,lewis2020,dhuliawala2024}.
+
+The contributions are:
+\begin{itemize}
+\item \textbf{A per-claim evidence-support measurement} of dependency remediation advice: every structured
+claim in a recommendation is checked against the evidence records it cites, separating claims without a
+citation, citations of records that do not exist, and records that do not state the claim.
+\item \textbf{A property-based safety measurement of remediation targets} across five label families
+(malicious, typosquat, vulnerable, nonexistent and benign reference), treating each recommended target as a new
+dependency decision.
+\item \textbf{A paired accounting of deterministic verification}: on the same cases, the unsafe
+recommendations the verifier removes, the acceptable recommendations it wrongly rejects, and the coverage it
+costs.
+\item \textbf{A comparison of rule-based and LLM-based remediation} with a non-inferiority margin fixed before
+any held-out run, in which a negative result is an admissible outcome.
+\item \textbf{A temporal hold-out} for the vulnerable family, in which advisories published after the system's
+evidence cut-off are hidden from the system but used by the scorer, so that the verifier cannot succeed by
+looking up the answer.
+\end{itemize}
+
+The evaluation protocol, case lists and evidence tables were frozen and hashed before held-out generation;
+every change made afterwards is recorded as a dated amendment (Section~\ref{sec:protocol}).
+
+% =====================================================================================================
+\section{Background and Related Work}
+
+\subsection{Package hallucination}
+Spracklen \emph{et al.} analysed code-generating models at scale and found that a substantial fraction of
+recommended packages did not exist, with open-source models hallucinating more often than commercial ones and
+many hallucinated names recurring across repeated queries; retrieval, self-refinement and fine-tuning reduced
+but did not remove the problem~\cite{spracklen2025}. Krishna \emph{et al.} measured hallucination
+vulnerabilities across languages and models~\cite{krishna2025}. Twist \emph{et al.} showed that misspelled or
+invented library names in developer queries are frequently accepted by models, and that a registry-existence
+tool lowered but did not eliminate the effect~\cite{twist2026}; their benchmark is one source of our
+nonexistent-family test names. Raj and Sahu studied the same risk for local coding models~\cite{raj2026}.
+Miranda-Pena \emph{et al.} evaluated static analysis for detecting and mitigating library
+hallucinations~\cite{mirandapena2026}. These works study what a model generates; none evaluates what a model
+recommends once a risky dependency has been found.
+
+\subsection{Typosquatting, package confusion and malicious packages}
+Typosquatting and combosquatting in PyPI were characterised by Vu \emph{et al.}~\cite{vu2020}; Taylor
+\emph{et al.} proposed defences~\cite{taylor2020}; Neupane \emph{et al.} broadened the attack class to package
+confusion~\cite{neupane2023}; Truong \emph{et al.} published typosquat pairs that we use as
+evidence~\cite{truong2025}; Jiang \emph{et al.} detect confusion attacks from metadata~\cite{jiang2026}.
+Supply-chain attacks on package managers have been reviewed and measured~\cite{ohm2020,duan2021,ladisa2023},
+and malicious-package detection increasingly uses LLMs and multi-agent
+designs~\cite{zahan2025,toda2025,zeshan2026,guo2023}. These works \emph{detect} risky packages; our study
+takes detection as given and evaluates the \emph{remediation} that follows.
+
+\subsection{Vulnerable dependencies and remediation}
+Decan \emph{et al.} measured how vulnerabilities propagate through the npm dependency network~\cite{decan2018}.
+Deterministic update tools such as Dependabot reduce technical lag but leave developers with limited
+information to trust an update~\cite{he2023}. Pearce \emph{et al.} examined zero-shot vulnerability repair
+with LLMs at code level~\cite{pearce2023}. Wang \emph{et al.} found that LLM-specified library versions
+frequently carry known vulnerabilities and that anchoring constraints to external data
+helps~\cite{wang2026}. Singla \emph{et al.} proposed a benchmark for dependency decisions and found agents
+selecting known-vulnerable versions; their design evaluates decisions against the advisories available at
+decision time~\cite{singla2026}, a principle our temporal hold-out adopts. These studies cover vulnerable
+versions only; malicious, typosquatted and nonexistent targets are not measured.
+
+\subsection{Grounding and verification of LLM output}
+Retrieval-augmented generation grounds model output in retrieved documents~\cite{lewis2020}, citation
+evaluation measures whether generated statements are supported by the cited passages~\cite{gao2023}, and
+chain-of-verification lets a model check its own answers~\cite{dhuliawala2024}. Our verifier differs from
+self-verification in that it shares no model with the recommender and re-derives each check deterministically
+from the evidence store. Our claim-support measurement transfers the idea of citation evaluation from text
+passages to structured security claims about packages and versions.
+
+% =====================================================================================================
+\section{Threat Model and Problem Definition}
+\label{sec:threat}
+
+A developer, or an automated agent acting for one, receives findings about the dependencies declared in a
+manifest and asks for a remediation. The recommender may be a rule set or an LLM. The adversary controls
+package names and versions in a public registry: they may publish a package under a name an LLM is likely to
+invent, publish a name that imitates a popular package, or publish a malicious version of a package. The
+adversary does not control the evidence sources, the registry recordings or the verifier.
+
+A recommendation consists of an action (\texttt{remove}, \texttt{replace}, \texttt{upgrade}, \texttt{keep} or
+\texttt{abstain}), an optional target package and version, and structured claims, each of which cites
+evidence records by identifier. A recommendation is \emph{unsafe} if it keeps a package or version reported as
+malicious, a listed typosquat or a vulnerable version (U-K), or if its target is reported malicious (U-M), does
+not exist (U-N), is a listed typosquat (U-T) or lies in an affected range of a known advisory (U-V). A claim is
+\emph{unsupported} if it cites nothing, cites an identifier absent from the evidence store, or cites records
+that do not state it (another package, another label family, or a version the record does not cover).
+Unsafety and support are judged against the full evidence, including records published after the system's
+cut-off.
+
+The system never installs, imports or executes a package, and no fix is applied; the output is a report.
+
+% =====================================================================================================
+\section{System Design}
+\label{sec:system}
+
+The pipeline (Fig.~\ref{fig:pipeline}) has five agents, orchestrated as a graph. Only Agent~4 uses an LLM.
+Every decision carries its reasons (rule, inputs, evidence identifiers and a plain sentence), and every failure
+is an explicit state rather than a default value.
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.92\columnwidth}{\centering\small
+Manifest $\rightarrow$ \textbf{A1} extraction $\rightarrow$ \textbf{A2} evidence $\rightarrow$
+\textbf{A3} findings $\rightarrow$ \textbf{A4} recommendation (R0 $|$ LLM-U $|$ LLM-G) $\rightarrow$
+\textbf{A5} verification (accept $|$ reject $|$ abstain) $\rightarrow$ report\\[2pt]
+Evidence store and registry recordings are read by A2 (input dependency) and A5 (recommended target).}}
+\caption{Pipeline overview. Placeholder for the final figure.}
+\label{fig:pipeline}
+\end{figure}
+
+\textbf{Agent 1, extraction}, parses \texttt{requirements.txt}, \texttt{pyproject.toml}, \texttt{Pipfile} and
+\texttt{package.json} into dependency records with normalized names and version constraints, without network
+access.
+
+\textbf{Agent 2, evidence collection}, retrieves evidence records for each dependency by exact key (ecosystem,
+normalized name, version) from a local evidence store and reads registry metadata from time-stamped
+recordings. It makes no risk judgement and filters evidence by the run's cut-off date.
+
+\textbf{Agent 3, risk analysis}, turns evidence into one finding per label family present, each with its
+evidence identifiers. Families are never merged into one risk score.
+
+\textbf{Agent 4, recommendation}, produces one structured recommendation per dependency. It has three
+variants: \emph{R0}, deterministic rules; \emph{LLM-U}, an LLM that receives only the names of the findings;
+and \emph{LLM-G}, an LLM that also receives the dependency's evidence records. The LLM has no tools and no
+network access, must answer with a single JSON object, and may cite only the identifiers it was given. Invalid
+answers are repaired at most twice; generation failures (\texttt{llm\_error}, \texttt{llm\_timeout},
+\texttt{schema\_violation}, \texttt{refusal}) become an \texttt{abstain} recommendation and are counted, never
+replaced by a default action.
+
+\textbf{Agent 5, verification}, decides whether a recommendation may be delivered. It is deterministic, does
+not import or read Agent~4's internals, and re-derives each check: schema and action validity; every cited
+identifier exists and states the claim; the target exists in the registry recording; the target is not
+reported malicious or a compromised version; the target is not a listed typosquat; the target version lies
+outside every affected range of non-withdrawn advisories visible at the cut-off; and the action is consistent
+with the findings. Any check that cannot run yields \texttt{abstain}, never \texttt{accept}. Agent~5 is
+independent of the LLM but not of the evidence: it cannot detect a malicious package that no source has
+reported.
+
+\textbf{The scorer} is part of the evaluation harness, not of the pipeline. It sees the full evidence,
+including records published after the cut-off, and is never called by an agent.
+
+% =====================================================================================================
+\section{Evaluation Methodology}
+\label{sec:method}
+
+\subsection{Research questions and hypotheses}
+RQ1 asks how reliable remediation recommendations for flagged dependencies are and what evidence grounding and
+deterministic verification change. It is answered by three measurements: claim support (RQ1a), rules versus
+LLM (RQ1b), and the verifier's effect on vulnerable targets (RQ1c). Supporting questions cover grounding (RQ2)
+and differences across families (RQ3). The hypotheses, fixed before the held-out runs, are:
+\begin{itemize}
+\item \textbf{HYP1}: the verifier lowers the delivered rate of vulnerable targets of the grounded LLM (C4 $<$ C3).
+\item \textbf{HYP2}: the verifier removes more unsafe recommendations than it wrongly rejects, on the same cases.
+\item \textbf{HYP3}: grounding lowers the unsupported-claim rate and the unsafe rate (C3 $<$ C2).
+\item \textbf{HYP4}: the grounded, verified LLM is non-inferior to the rule-based recommender on the delivered
+unsafe rate (margin 3 percentage points) and has higher coverage.
+\item \textbf{HYP7}: the grounded LLM has a non-zero unsupported-claim rate that the verifier removes.
+\end{itemize}
+HYP4 and HYP7 may be false; if the rule-based recommender is as safe and as complete, or a grounded model makes
+no unsupported claims, those are the findings.
+
+\subsection{Conditions}
+All conditions run on the same cases (Table~\ref{tab:conditions}). C1 and C5 share one R0 run, and C3 and C4
+share one LLM-G run, so that comparisons are paired by case.
+
+\begin{table}[t]
+\caption{Experimental conditions}
+\label{tab:conditions}
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+Condition & Recommender & Verifier \\
+\midrule
+C1 & R0, deterministic rules & off \\
+C2 & LLM-U, finding names only & off \\
+C3 & LLM-G, evidence records in the input & off \\
+C4 & LLM-G & on (only accepted recommendations delivered) \\
+C5 & R0 & on \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Evidence store}
+The evidence store holds 123{,}980 normalized records in eight tables (Table~\ref{tab:store}), each with its
+source, source record identifier, version scope, publication date and file hash. Label families are kept
+separate. Overlapping malicious-package sources are not treated as independent confirmations. The store
+contains no npm advisories, so vulnerable-version results are for PyPI only.
+
+\begin{table}[t]
+\caption{Evidence store (frozen for all held-out runs)}
+\label{tab:store}
+\centering
+\begin{tabular}{@{}llr@{}}
+\toprule
+Family & Source & Records \\
+\midrule
+Vulnerable & OSV advisories (PyPI) & 23{,}632 \\
+Malicious / withdrawn & OpenSSF malicious packages & 18{,}348 \\
+Malicious & DataDog malicious package manifests & 53{,}632 \\
+Malicious & MalRegistry listing & 12{,}600 \\
+Typosquat & Ecosyste.ms typosquat list & 130 \\
+Typosquat & YCTT pairs~\cite{truong2025} & 406 \\
+Benign reference & PyPI popular packages & 15{,}000 \\
+Benign reference & YCTT targets~\cite{truong2025} & 232 \\
+\midrule
+Total & & 123{,}980 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Cases and splits}
+A case is a one-line manifest declaring one dependency with a known label. Cases were split into train,
+development and test sides before any model was run (Table~\ref{tab:cases}). A package, and a typosquat
+together with the package it imitates, always fall on one side. Vulnerable cases come from pinned requirements
+of 300 sampled real repositories, grouped by package and split 60/20/20 with stratification by package size.
+Names derived from hallucination benchmarks~\cite{twist2026} are used only in the test split, and names that
+also appear in malicious or typosquat lists are kept out of every development split. Two test cases whose
+names no registry accepts are excluded from every metric and reported by identifier.
+
+\begin{table}[t]
+\caption{Cases per family and side (package groups in parentheses)}
+\label{tab:cases}
+\centering
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Family & Train & Dev & Test \\
+\midrule
+Vulnerable & 531 (58) & 180 (43) & 177 (43) \\
+Typosquat & 344 (189) & 89 (52) & 103 (48) \\
+Malicious & 1{,}244 (1{,}242) & 251 (249) & 276 (273) \\
+Nonexistent & 0 & 0 & 1{,}067 (1{,}066) \\
+Benign reference & 521 (521) & 104 (104) & 107 (107) \\
+\midrule
+Total & 2{,}640 & 624 & 1{,}730 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% TBD after the full-test and fine-tuning runs: the evaluated test sets per model. Current runs use a
+% stratified sample of 60 test cases per family (300 cases), drawn by a rule fixed before any held-out
+% generation; update this paragraph if the full test lists are run.
+The held-out evaluation sets per model are described in Section~\ref{sec:setup}.
+
+\subsection{Temporal settings}
+Three settings are reported separately. S0 has no cut-off: all evidence is visible to the system. S1 and S2
+apply evidence cut-offs of 1~December~2024 and 1~September~2025 to the vulnerable family: evidence published
+on or after the cut-off, and undated evidence, is hidden from the system and citing it fails a claim, while
+the scorer judges with the full evidence. Typosquat and undated malicious sources carry no usable publication
+date and are therefore not run under a cut-off. Registry metadata comes from recordings made before the
+held-out runs; under a cut-off, only versions uploaded before it are visible to the system. No live registry
+lookup is made in a held-out run.
+
+\subsection{Outcomes}
+For each case and condition we record: the unsafe properties U-K, U-M, U-N, U-T and U-V and their union
+(components that cannot be scored are counted separately, never as safe); the \emph{delivered} unsafe rate,
+in which a recommendation withheld by the verifier delivers nothing unsafe; \emph{coverage}, the share of cases
+that receive a delivered, non-abstaining recommendation, always reported next to delivered unsafe; the
+unsupported-claim rate; citation precision and recall against the evidence records relevant to the case; the
+verifier's verdicts, unsafe recommendations removed and acceptable recommendations wrongly rejected; and a
+descriptive \emph{passed} outcome (not abstaining, generated, valid action, scorable, not unsafe and every
+claim supported).
+
+\subsection{Statistics}
+Proportions carry Wilson 95\,\% intervals. Rates of claims use a grouped bootstrap (2{,}000 resamples, seed
+20261114) with package clusters as the resampling unit; with fewer than 10 clusters no bootstrap interval is
+reported. Paired binary outcomes are compared with the exact McNemar test; comparisons between a verifier-off
+and a verifier-on condition use delivered unsafe. The Holm correction is applied per hypothesis across families
+and models within a setting. For HYP4 the bound is the upper end of the 90\,\% package-cluster bootstrap
+interval of the paired difference C4$-$C1 in delivered unsafe; when no case is discordant, the one-sided
+95\,\% Wilson bound of the share of cases unsafe only under C4 is used, so that zero events never prove
+non-inferiority by themselves. Families are never pooled into one headline number, and every number is
+labelled as development or test.
+
+\subsection{Protocol, freeze and amendments}
+\label{sec:protocol}
+Prompt and design choices were made on development cases only. The prompt version was selected on 100
+development cases by a rule fixed in advance: the newer prompt is adopted only if it yields more passed
+answers without more unsafe answers under C3. The evaluation protocol, the plan of held-out jobs, the case
+lists, the evidence tables and the prompt text were hashed and frozen before held-out generation. The runner
+refuses to run if any hash differs, reads registry facts only from recordings, enforces one GPU job at a time,
+and scores by replaying cached model answers, refusing to write results if a replayed generation differs from
+the logged one. After the freeze, each change is a dated amendment with its reason, made before scoring and
+reported in the paper.
+% TBD: list the final amendments (currently: a common case set for all models; hosted models deferred;
+% scoring opened before the claim-matcher audit, with any later matcher fix reported only as a sensitivity
+% analysis). Add any amendment made for the full test lists or for a fine-tuned model.
+
+\subsection{Models and experimental setup}
+\label{sec:setup}
+% TBD after all runs: final table of models (identifier, size, quantization, image identifier), evaluated
+% case sets and settings per model, and any fine-tuned model with its training data (train split only) and
+% training configuration.
+The LLM-based variants use open-weight models served locally, with temperature 0, an output limit of 2{,}048
+tokens, and the same prompt version for every model. Each local model is identified by its image digest, which
+the runner checks before any call. Model training dates relative to the cut-offs are not known.
+
+% =====================================================================================================
+\section{Implementation and Reproducibility}
+The system is implemented in Python as a single package with typed contracts between agents and a graph
+orchestrator. The test suite runs without network access; LLM calls are replaced by recorded responses.
+Every provider answer is cached by its exact request, so that a scoring replay reproduces each run without
+calls; errors are never cached. Every run writes its rows, metrics, protocol record and file hashes once and
+never overwrites them. Registry recordings, evidence tables and case lists carry SHA-256 hashes recorded in the
+protocol.
+% TBD: repository URL and artifact availability statement, subject to the licences of the data sources.
+
+% =====================================================================================================
+\section{Results}
+TO BE WRITTEN after the held-out runs: per setting, per model and per family, the tables of
+Section~\ref{sec:method}, the hypothesis tests with Holm-adjusted $p$-values, and the HYP4 bounds.
+
+\section{Discussion}
+TO BE WRITTEN after the results.
+
+% =====================================================================================================
+\section{Threats to Validity}
+\label{sec:threats}
+\textbf{Construct validity.} No gold set of correct recommendations exists; ``unsafe'' and ``unsupported'' are
+defined by the study from evidence records, and an upgrade that is safe by its version range may still be
+inapplicable to a project~\cite{decan2018}. The verifier and the scorer share the version-range grammar, so
+their agreement on version facts is not independent evidence; hand-checked golden vectors guard the grammar.
+A human audit of the claim matcher and human ratings of recommendation acceptability are planned to validate
+the automatic metrics.
+
+\textbf{Internal validity.} Registry recordings are not the registry's state at the cut-off dates; versions
+are filtered by upload time, but removals after a cut-off are not visible. Model training data may include
+advisories published after a cut-off. Small models produce invalid output in a share of cases; these are
+counted as abstentions and reported, which lowers coverage rather than inflating safety.
+
+\textbf{External validity.} Vulnerable-version results are for PyPI only. Under a cut-off, malicious and
+typosquat events are rare, so inferential claims are limited to the families with enough events. Results for
+locally served open-weight models may not transfer to larger hosted models.
+
+\textbf{Reliability.} Generation uses temperature 0 without a fixed seed; repeated runs may differ, and all
+reported numbers come from one recorded run per model, replayed from the cache for scoring.
+
+% =====================================================================================================
+\section{Ethics and Data Handling}
+The malicious-package datasets contain real malware. No package archive was extracted for execution,
+installed, imported or run, and no dependency was installed from a dataset manifest. Registry access was
+limited to metadata, time-stamped and recorded. Evidence records retain their provenance (source, version,
+record identifier, file hash and licence). The study uses no human subjects; any annotation is performed by the
+authors.
+
+% =====================================================================================================
+\section{Conclusion and Future Work}
+TO BE WRITTEN after the results. Planned future work includes evaluating larger hosted models on the same
+cases, running the complete test lists, adapting a model on the training split and re-evaluating it under the
+same frozen protocol, human acceptability ratings of recommendations with a second annotator, ablation of
+individual verifier checks, comparison with an existing audit tool, and extension of vulnerable-version
+evidence to npm.
+
+% =====================================================================================================
+\begin{thebibliography}{99}
+
+\bibitem{spracklen2025}
+J.~Spracklen, R.~Wijewickrama, A.~H.~M.~N.~Sakib, A.~Maiti, B.~Viswanath, and M.~Jadliwala,
+``We have a package for you! A comprehensive analysis of package hallucinations by code generating LLMs,''
+in \emph{Proc. 34th USENIX Security Symp.}, 2025, pp.~3687--3706.
+
+\bibitem{twist2026}
+L.~Twist, M.~Harman, H.~Yannakoudakis, and J.~M.~Zhang,
+``Library hallucinations in LLM-generated code: A risk analysis grounded in developer queries,''
+in \emph{Proc. 2026 Conf. Empirical Methods in Natural Language Processing (EMNLP)}, 2026, pp.~1785--1812.
+
+\bibitem{raj2026}
+A.~Raj and S.~Sahu,
+``Names can hurt: Spotting slopsquatting risks caused by package name hallucinations in local coding LLMs,''
+arXiv:2608.23897, 2026.
+
+\bibitem{neupane2023}
+S.~Neupane, G.~Holmes, E.~Wyss, D.~Davidson, and L.~De~Carli,
+``Beyond typosquatting: An in-depth look at package confusion,''
+in \emph{Proc. 32nd USENIX Security Symp.}, 2023, pp.~3439--3456.
+
+\bibitem{wang2026}
+Wang, Wu, Ling, Luo, and Zhao,
+``Correct code, vulnerable dependencies: A large scale measurement study of LLM-specified library versions,''
+arXiv:2605.06279, 2026. % TBD: full author first names
+
+\bibitem{singla2026}
+T.~Singla, B.~{\c{C}}akar, P.~C.~Amusuo, and J.~C.~Davis,
+``Towards a benchmark for dependency decision-making,'' arXiv:2601.00205, 2026.
+
+\bibitem{krishna2025}
+A.~Krishna, E.~Galinkin, L.~Derczynski, and J.~Martin,
+``Importing phantoms: Measuring LLM package hallucination vulnerabilities,'' arXiv:2501.19012, 2025.
+
+\bibitem{toda2025}
+Toda and Mori,
+``CHASE: LLM agents for dissecting malicious PyPI packages,''
+in \emph{Proc. IEEE/ACM AIware}, 2025, doi:10.1109/AIware69974.2025.00008. % TBD: exact title and first names
+
+\bibitem{zahan2025}
+N.~Zahan, P.~Burckhardt, M.~Lysenko, F.~Aboukhadijeh, and L.~Williams,
+``Leveraging large language models to detect npm malicious packages,''
+in \emph{Proc. IEEE/ACM 47th Int. Conf. Software Engineering (ICSE)}, 2025, pp.~2625--2637.
+
+\bibitem{zeshan2026}
+M.~U.~Zeshan, M.~Ibiyo, C.~Di~Sipio, P.~T.~Nguyen, and D.~Di~Ruscio,
+``Many hands make light work: An LLM-based multi-agent system for detecting malicious PyPI packages,''
+\emph{J. Systems and Software}, 2026, accepted; arXiv:2601.12148.
+
+\bibitem{lewis2020}
+P.~Lewis \emph{et al.},
+``Retrieval-augmented generation for knowledge-intensive NLP tasks,''
+in \emph{Advances in Neural Information Processing Systems (NeurIPS)}, 2020.
+
+\bibitem{dhuliawala2024}
+S.~Dhuliawala, M.~Komeili, J.~Xu, R.~Raileanu, X.~Li, A.~Celikyilmaz, and J.~Weston,
+``Chain-of-verification reduces hallucination in large language models,''
+in \emph{Findings of the Association for Computational Linguistics: ACL 2024}, 2024, pp.~3563--3578.
+
+\bibitem{mirandapena2026}
+C.~Miranda-Pena, A.~Reeson, C.~Paris, J.~Poon, and J.~K.~Kummerfeld,
+``An empirical analysis of static analysis methods for detection and mitigation of code library
+hallucinations,'' \emph{Trans. Machine Learning Research}, 2026, accepted; arXiv:2604.07755.
+
+\bibitem{vu2020}
+D.-L.~Vu, I.~Pashchenko, F.~Massacci, H.~Plate, and A.~Sabetta,
+``Typosquatting and combosquatting attacks on the Python ecosystem,''
+in \emph{Proc. IEEE European Symp. Security and Privacy Workshops (EuroS\&PW)}, 2020, pp.~509--514.
+
+\bibitem{taylor2020}
+M.~Taylor, R.~Vaidya, D.~Davidson, L.~De~Carli, and V.~Rastogi,
+``Defending against package typosquatting,''
+in \emph{Network and System Security (NSS)}, LNCS, 2020, pp.~112--131.
+
+\bibitem{truong2025}
+M.~T.~Truong, N.~Gruschka, and L.~Lo~Iacono,
+``You can't touch this: Detecting typosquatting packages for enhanced malware prevention in software supply
+chains,'' in \emph{Network and System Security (NSS 2024)}, LNCS, Springer, 2025, pp.~147--166.
+
+\bibitem{jiang2026}
+W.~Jiang, B.~{\c{C}}akar, M.~Lysenko, and J.~C.~Davis,
+``ConfuGuard: Using metadata to detect active and stealthy package confusion attacks accurately and at
+scale,'' in \emph{Proc. Int. Conf. Software Engineering (ICSE)}, 2026.
+
+\bibitem{ohm2020}
+M.~Ohm, H.~Plate, A.~Sykosch, and M.~Meier,
+``Backstabber's knife collection: A review of open source software supply chain attacks,''
+in \emph{Proc. DIMVA}, LNCS, 2020, pp.~23--43.
+
+\bibitem{duan2021}
+R.~Duan, O.~Alrawi, R.~P.~Kasturi, R.~Elder, B.~Saltaformaggio, and W.~Lee,
+``Towards measuring supply chain attacks on package managers for interpreted languages,''
+in \emph{Proc. NDSS}, 2021.
+
+\bibitem{ladisa2023}
+P.~Ladisa, H.~Plate, M.~Martinez, and O.~Barais,
+``Taxonomy of attacks on open-source software supply chains,''
+in \emph{Proc. IEEE Symp. Security and Privacy (SP)}, 2023, pp.~1509--1526.
+
+\bibitem{guo2023}
+W.~Guo, Z.~Xu, C.~Liu, C.~Huang, Y.~Fang, and Y.~Liu,
+``An empirical study of malicious code in PyPI ecosystem,''
+in \emph{Proc. 38th IEEE/ACM Int. Conf. Automated Software Engineering (ASE)}, 2023.
+
+\bibitem{decan2018}
+A.~Decan, T.~Mens, and E.~Constantinou,
+``On the impact of security vulnerabilities in the npm package dependency network,''
+in \emph{Proc. 15th Int. Conf. Mining Software Repositories (MSR)}, 2018.
+
+\bibitem{he2023}
+R.~He, H.~He, Y.~Zhang, and M.~Zhou,
+``Automating dependency updates in practice: An exploratory study on GitHub Dependabot,''
+\emph{IEEE Trans. Software Engineering}, 2023.
+
+\bibitem{pearce2023}
+H.~Pearce, B.~Tan, B.~Ahmad, R.~Karri, and B.~Dolan-Gavitt,
+``Examining zero-shot vulnerability repair with large language models,''
+in \emph{Proc. IEEE Symp. Security and Privacy (SP)}, 2023.
+
+\bibitem{gao2023}
+T.~Gao, H.~Yen, J.~Yu, and D.~Chen,
+``Enabling large language models to generate text with citations,''
+in \emph{Proc. EMNLP}, 2023.
+
+\end{thebibliography}
+
+\end{document}

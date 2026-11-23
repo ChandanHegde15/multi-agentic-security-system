@@ -645,3 +645,67 @@ Suggested set (D-038: models from different families): gpt-oss-20b on Groq (Open
 - **D-076 (c) applied:** passed 39 to 55, C3 unsafe 10 to 1: **prompt 0.2**.
 - **Reading.** Most "no answer" results are abstentions on malicious cases (36 of 53 under 0.2); coverage, not safety, is this model's weak point. Benign 23 of 23 passed under both prompts.
 
+
+### Prompt 0.1 vs 0.2, gpt-oss-20b, and a replay fix (2026-11-23; DEV, descriptive; scorer 0.2; from the response cache, no calls in scoring)
+
+- **Generation finished.** The last 16 `a4-prompt/0.2` generations of `openai/gpt-oss-20b` ran on 2026-11-23 (20 real calls; ledger 20 of 150 for the day; 12 s spacing; cache on). 100 cases: LLM-U 100 ok, LLM-G 99 ok. `case-mali-0027aa9e6f0a` LLM-G fails with HTTP 413 (request too large for the per-minute token limit) under both prompts; it is a recorded failure and the case is "not scored" for both.
+- **Recommended targets** (offline check over every dev snapshot folder): 92 distinct, 91 recorded. The one without a snapshot, `npm:base64js`, comes from `qwen2.5:7b` prompt 0.2, LLM-U (C2), on a typosquat case; it was missed on 2026-11-22 because that check ran before the 7B run had finished. It does not touch C3, so the 7B prompt choice is unchanged; the C2 row reads the target as unknown until a metadata-only lookup is approved. gpt-oss has no new target.
+- **Replay defect found and fixed (D-094).** The first scoring showed 6 cache misses and 2 benign LLM-G "generation failures" that the generation log records as `ok`. Cause: answers cut off at the 2,048-token limit were not cached, so a replay of a repaired answer missed on the first request. Fixed in `CachingLLMClient` (every provider answer is cached) with 2 regression tests; the 4 missing entries were restored from the raw response records. Re-scored with 0 misses: `research/datasets/runs/pilot_p01hg_2026-11-23_a2/openai_gpt-oss-20b/` (prompt 0.1; `rows.jsonl` `50605088fb54…`, `metrics.json` `b3e42d1b466d…`) and `pilot_p02hg_2026-11-23_a2/openai_gpt-oss-20b/` (prompt 0.2; `rows.jsonl` `8b7c0a06d6a2…`, `metrics.json` `d3d31146ec47…`). Both use the same six snapshot folders. The 0.1 reference in `pilot_scorer02_2026-11-21/openai_gpt-oss-20b/` had 1 false failure from the same defect and is replaced by the `_a2` re-score for this comparison. The other four models had 0 misses (checked again for Task C).
+
+| Prompt | Scored | Passed | Failed (unsafe / claim / invalid) | No answer | Not scored | C4 withheld |
+|---|---|---|---|---|---|---|
+| 0.1 | 99 | 85 | 14 (2 / 12 / 0) | 0 | 1 | 14 |
+| 0.2 | 99 | 94 | 5 (1 / 4 / 0) | 0 | 1 | 5 |
+
+- **McNemar exact on passed:** 3 cases only under 0.1, 12 only under 0.2, p = 0.035. C3 unsafe 2 to 1.
+- **D-076 (c) applied:** passed 85 to 94, C3 unsafe 2 to 1: **prompt 0.2**. Every model now uses `a4-prompt/0.2`.
+- **Reading.** Malicious passed 44 to 53 of 53 (unsupported claims gone); benign 23 to 21 (2 claim failures under 0.2); the one remaining C3 unsafe answer is a vulnerable case, withheld by the verifier.
+- **Reproduce.** `pilot_score_p02b4.py <out> openai_gpt-oss-20b`, `pilot_score_p01hg.py <out> openai_gpt-oss-20b`, then `P01=pilot_p01hg_2026-11-23_a2 P02=pilot_p02hg_2026-11-23_a2 cmp_p01_p02_env.py openai_gpt-oss-20b`; logs `runtime/runs/pilot_2026-11-20/{score_gptoss_p01_a2,score_gptoss_p02_a2,cmp_gptoss}_2026-11-23.txt`.
+
+### Annotation Task C sheet built (2026-11-23; D-093; development outputs only)
+
+- 492 distinct structured claims of the six citing types from the dev pilot (prompt 0.2, five models, both variants), re-derived from the caches with 0 misses. Sample of 200 (100 supported, 100 unsupported by the program), pilot of 20 inside it; seed 20261123. Sheet `research/datasets/annotation/task_c_2026-11-23_a3/` (`task_c_sheet.xlsx`, `task_c_pilot.csv`, `task_c_main.csv`, `README.txt`); hidden key `..._a3_KEY_do_not_open/task_c_key.jsonl` (`92c923b4e6ce…`) with `SAMPLE_RECORD.json`. Builder `task_c_build.py.txt`. No annotation done yet.
+
+### Dev lookup of one target, and an automated cross-check of Task C (2026-11-23; D-096; DEV)
+
+- `npm:base64js` looked up once (metadata only) into `registry_snapshots/dev_batch5_2026-11-23/` (found; 2 versions; latest 1.0.1). qwen2.5:7b prompt 0.2 re-scored from the cache (0 misses) into `research/datasets/runs/pilot_local7b_p02_2026-11-23_a2/qwen2.5_7b/` (`rows.jsonl` `92a44c475d31…`, `metrics.json` `129be63dbd0f…`). One row changes: C2 `case-typo-2a4d26d7fcd2` U-N from not scorable to not unsafe. C3 unchanged; prompt choice 0.2 unchanged.
+- Task C material cross-checked by a second, independently written checker of the guideline 1.1 rules: 200 of 200 items agree with the program's expected label. This is a consistency check of the material, not an annotation; the human pilot is still to be done.
+
+## PROTOCOL FROZEN (2026-11-23; D-097)
+
+- `docs/research/EVALUATION_PROTOCOL.md` SHA-256 `336e80c03262954ab81e2b54910488317e8814d1d4461821bb52196e4851f7b1` and `docs/research/heldout_plan.json` `18feba67446e6369ea26a694595aab97a8a873d82c7c073e8ec68b3525a73ed6` (both hashed with CRLF read as LF), recorded in `docs/research/PROTOCOL_FREEZE.json`, frozen on 2026-11-23 (time in the record) with the owner's approval. Amendments: `EVALUATION_PROTOCOL_AMENDMENTS.md`.
+- Frozen before annotation Task C, with a scoring gate: test-side generation may start; no test job is scored until `docs/research/TASK_C_RESULT.json` says `done` (enforced by the runner).
+- Checked before the first job: the three local images match the plan (`a80c4f17acd5`, `357c53fb659c`, `845dbda0ea48`, read from the loopback Ollama server).
+
+### Held-out generation log (TEST; generation only, nothing scored)
+
+| Started (UTC) | Job | Status |
+|---|---|---|
+| 2026-11-23 | `S1__ollama__llama3.2_3b` (141 cases) | started |
+| 2026-11-23 07:13 | `S0__groq__openai_gpt-oss-20b` (300 cases), `S0__groq__qwen_qwen3.8-27b` (300) | started; queues `heldout_queue.py.txt` (hosted: S0 -> S1 -> S2 per model, 150 calls per UTC day, resume at 00:05 UTC; local: the remaining 8 local jobs in order, one at a time) |
+
+### 2026-11-23 Amendment A1 (D-098): one common case set (TEST, generation only)
+
+- Owner's request: finish testing early on the same cases for every model; the full dataset and fine-tuning come later.
+- The local queue was stopped at 09:41 UTC. Kept on disk: `S1__ollama__llama3.2_3b` and `S2__ollama__llama3.2_3b` (full lists, complete) and `S1__ollama__qwen2.5_3b` (49 of 282 pairs). The job log was intact. The stopped process's stale GPU lock was removed after confirming that the process no longer existed.
+- New plan `docs/research/heldout_plan_A1.json`, with 9 local jobs on the hosted-sample lists. Freeze record `docs/research/PROTOCOL_FREEZE_A1.json`: protocol hash `336e80c0…` (unchanged), plan hash `fb706a0d…`. One new test was added; the runner tests now give 25 passed.
+- The A1 local queue started at 09:43 UTC. The llama3.2:3b S1 and S2 A1 jobs completed from the response cache in seconds, with identical requests and so identical answers. S0 is generating. The hosted queues are unchanged.
+- Nothing is scored; the scoring gate stays closed until Task C.
+
+### 2026-11-23 Amendment A2 (D-099): hosted models deferred
+
+- Owner's decision: local models only for now. The hosted queues were stopped at 09:53 UTC while they waited for the next UTC day; they held no lock. Kept on disk and not scored: gpt-oss-20b S0 124 of 600 pairs, qwen3.8-27b S0 143 of 600.
+- The current evaluation covers llama3.2:3b, qwen2.5:3b and qwen2.5:7b on the common sample (A1). Nothing is scored; the gate stays closed until Task C.
+
+### 2026-11-23 Report tool (D-100) and amendment A3 (D-101): scoring opens without waiting for Task C
+
+- `evaluation/report.py` (`heldout_report/0.1`) builds the protocol's tables and the hypothesis tests from the result rows and drops the D-091 exclusions from every metric. A DEV cross-check on the dev pilot result folders (qwen2.5:7b and the hosted dev pilots) found that the recomputed numbers equal the harness `metrics.json` in every block (0 differences, bootstrap intervals included). 3 unit tests.
+- `heldout_plan_A3.json` and `PROTOCOL_FREEZE_A3.json` (plan hash `63d8bc80…`): plan A1 without the score gate. Generation continues under plan A1, which has the same jobs. Scoring and reporting use plan A3.
+- Order after generation: `targets` for the 9 jobs (offline), then metadata-only lookups of unrecorded targets into `test_targets_heldout_v1` (D-089; an empty folder if there are none), then `score` (cache-only replay), then the report.
+
+### 2026-11-23 Held-out generation complete (A1, local models; TEST, counts only)
+
+- Local queue finished at 19:42 UTC. Every A1 job has a generation line for every (case, variant) pair. Pairs that failed twice (recorded failures, kept): llama3.2:3b S1/S2/S0 see the job logs; qwen2.5:3b S2 12, S0 59; qwen2.5:7b S1 5, S2 5, S0 13.
+- `targets` (offline, all 9 jobs): 12 distinct recommended targets had no recording; 1 recommendation (`npm:--legacy-peer-deps`) is not a valid registry name. Plan `runtime/runs/heldout_v1/test_targets_plan.json` (SHA-256 prefix `0967084b4283416b`).
+- Lookups (D-089, metadata only) into `registry_snapshots/test_targets_heldout_v1/` at 19:43 UTC (RUN_RECORD SHA-256 prefix `1c501c9057738363`): 11 found (HTTP 200), 1 not found (`npm:create-htshs`, HTTP 404). A current lookup is not the status at a past cut-off (limit, as stated in D-089).
+- Scoring was started and stopped by the owner's request before any job had finished; nothing was written. It restarts cleanly (the score step skips only jobs with a written result).

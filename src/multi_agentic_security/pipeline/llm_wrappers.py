@@ -4,9 +4,11 @@
 calls with ``LLMError(code="budget_exhausted")``; Agent 4 turns that into ``llm_error``
 -> ``abstain`` (a state, never a default action). ``CachingLLMClient`` replays an
 earlier successful answer for the exact same request (provider, model, prompt,
-temperature, seed, token limit), so repeating a run costs no calls. Only successful
-answers are cached. Order: ``CachingLLMClient(BudgetedLLMClient(real))``, so cache
-hits do not use up the budget.
+temperature, seed, token limit), so repeating a run costs no calls. Every answer the
+provider returned is cached, whatever its stop reason or text (D-094): an answer cut off
+at the output limit, even an empty one, is part of the recorded attempt path (it leads to
+a repair request), so a cache-only replay must see it too. Errors are never cached. Order:
+``CachingLLMClient(BudgetedLLMClient(real))``, so cache hits do not use up the budget.
 """
 
 from __future__ import annotations
@@ -59,7 +61,7 @@ class CachingLLMClient:
                 pass   # an unreadable cache entry is a miss, never an answer
         self.misses += 1
         resp = self.inner.generate(request)
-        if resp.stop_reason == "end" and resp.text.strip():
+        if isinstance(resp, LLMResponse) and isinstance(resp.text, str):   # D-094: every answer, any stop reason
             self.folder.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps({"text": resp.text, "stop_reason": resp.stop_reason,
                                         "provider_response_id": resp.provider_response_id,

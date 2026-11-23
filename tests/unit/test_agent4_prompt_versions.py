@@ -19,6 +19,16 @@ def test_the_0_1_text_is_frozen():
     assert LLMOptions().prompt_version == "a4-prompt/0.1"
 
 
+def test_the_0_2_text_is_frozen():
+    # D-095: every model's held-out prompt; the dev pilot answers replay from the cache with this exact text.
+    assert hashlib.sha256(P.SYSTEM_02.encode()).hexdigest() == "9fd5e43d01be9fb0327f726d179b43c69af5f299a834991c397bb15fe5138233"
+    assert P.PROMPTS["a4-prompt/0.2"] is P.SYSTEM_02
+    assert {k: hashlib.sha256(v.encode()).hexdigest()[:16] for k, v in P.VARIANT_NOTE.items()} == {
+        k: hashlib.sha256(v.encode()).hexdigest()[:16] for k, v in {
+            "LLM-G": "The input contains the evidence records known for this dependency. Base every claim on them.",
+            "LLM-U": "The input contains no evidence records, only the names of the findings."}.items()}
+
+
 def test_0_2_keeps_every_0_1_rule_and_adds_the_contract_rules():
     s1, s2 = P.SYSTEM, P.PROMPTS["a4-prompt/0.2"]
     assert s2 != s1 and len(s2) > len(s1)

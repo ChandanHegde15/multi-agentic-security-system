@@ -1,0 +1,130 @@
+{
+ "format": "heldout_plan/1",
+ "decision": "D-101 (amendment A3: scoring is not gated on Task C; plan A1 otherwise unchanged)",
+ "protocol": "docs/research/EVALUATION_PROTOCOL.md",
+ "evidence_store": "research/datasets/verified/normalized/v1",
+ "snapshot_folders": [
+  "research/datasets/registry_snapshots/test_2026-11-22",
+  "research/datasets/registry_snapshots/test_2026-11-22b",
+  "research/datasets/registry_snapshots/test_2026-11-22c",
+  "research/datasets/registry_snapshots/run003_2026-11-17",
+  "research/datasets/registry_snapshots/live_check_2026-11-16",
+  "research/datasets/registry_snapshots/dev_2026-11-20",
+  "research/datasets/registry_snapshots/dev_batch2_2026-11-20",
+  "research/datasets/registry_snapshots/dev_batch3_2026-11-21",
+  "research/datasets/registry_snapshots/dev_batch4_2026-11-21",
+  "research/datasets/registry_snapshots/dev_batch5_2026-11-23",
+  "research/datasets/registry_snapshots/test_targets_heldout_v1"
+ ],
+ "out_root": "runtime/runs/heldout_v1",
+ "cache_root": "runtime/cache/heldout_v1",
+ "results_root": "research/datasets/runs/heldout_v1",
+ "ledger_dir": "runtime/runs/pilot_2026-11-20",
+ "max_output_tokens": 2048,
+ "score_gate": null,
+ "excluded_case_ids": [
+  "case-typo-11f156e51fa2",
+  "case-typo-2b3383a5e36b"
+ ],
+ "jobs": [
+  {
+   "job_id": "S0__ollama__llama3.2_3b__A1",
+   "setting": "S0",
+   "provider": "ollama",
+   "model": "llama3.2:3b",
+   "image_id": "a80c4f17acd5",
+   "prompt_version": "a4-prompt/0.2",
+   "cases_file": "research/datasets/evaluation/cases_v5/hosted_sample_D087/hosted_sample.jsonl",
+   "cases_sha256": "3dbeee09958db88a6071d5dc8c36779e6f54e8bf2b19d278bdfe8891dae9015c",
+   "cutoff": null
+  },
+  {
+   "job_id": "S0__ollama__qwen2.5_3b__A1",
+   "setting": "S0",
+   "provider": "ollama",
+   "model": "qwen2.5:3b",
+   "image_id": "357c53fb659c",
+   "prompt_version": "a4-prompt/0.2",
+   "cases_file": "research/datasets/evaluation/cases_v5/hosted_sample_D087/hosted_sample.jsonl",
+   "cases_sha256": "3dbeee09958db88a6071d5dc8c36779e6f54e8bf2b19d278bdfe8891dae9015c",
+   "cutoff": null
+  },
+  {
+   "job_id": "S0__ollama__qwen2.5_7b__A1",
+   "setting": "S0",
+   "provider": "ollama",
+   "model": "qwen2.5:7b",
+   "image_id": "845dbda0ea48",
+   "prompt_version": "a4-prompt/0.2",
+   "cases_file": "research/datasets/evaluation/cases_v5/hosted_sample_D087/hosted_sample.jsonl",
+   "cases_sha256": "3dbeee09958db88a6071d5dc8c36779e6f54e8bf2b19d278bdfe8891dae9015c",
+   "cutoff": null
+  },
+  {
+   "job_id": "S1__ollama__llama3.2_3b__A1",
+   "setting": "S1",
+   "provider": "ollama",
+   "model": "llama3.2:3b",
+   "image_id": "a80c4f17acd5",
+   "prompt_version": "a4-prompt/0.2",
+   "cases_file": "research/datasets/evaluation/cases_v5/hosted_sample_D087/hosted_vulnerable_T2024-12-01.jsonl",
+   "cases_sha256": "f338e5c99ab1616a7ed3d9aa05e8501512c20e5e5fee0d79ab0d27485029e630",
+   "cutoff": "2024-12-01"
+  },
+  {
+   "job_id": "S1__ollama__qwen2.5_3b__A1",
+   "setting": "S1",
+   "provider": "ollama",
+   "model": "qwen2.5:3b",
+   "image_id": "357c53fb659c",
+   "prompt_version": "a4-prompt/0.2",
+   "cases_file": "research/datasets/evaluation/cases_v5/hosted_sample_D087/hosted_vulnerable_T2024-12-01.jsonl",
+   "cases_sha256": "f338e5c99ab1616a7ed3d9aa05e8501512c20e5e5fee0d79ab0d27485029e630",
+   "cutoff": "2024-12-01"
+  },
+  {
+   "job_id": "S1__ollama__qwen2.5_7b__A1",
+   "setting": "S1",
+   "provider": "ollama",
+   "model": "qwen2.5:7b",
+   "image_id": "845dbda0ea48",
+   "prompt_version": "a4-prompt/0.2",
+   "cases_file": "research/datasets/evaluation/cases_v5/hosted_sample_D087/hosted_vulnerable_T2024-12-01.jsonl",
+   "cases_sha256": "f338e5c99ab1616a7ed3d9aa05e8501512c20e5e5fee0d79ab0d27485029e630",
+   "cutoff": "2024-12-01"
+  },
+  {
+   "job_id": "S2__ollama__llama3.2_3b__A1",
+   "setting": "S2",
+   "provider": "ollama",
+   "model": "llama3.2:3b",
+   "image_id": "a80c4f17acd5",
+   "prompt_version": "a4-prompt/0.2",
+   "cases_file": "research/datasets/evaluation/cases_v5/hosted_sample_D087/hosted_vulnerable_T2025-09-01.jsonl",
+   "cases_sha256": "69a48637a20b7ef9f88557e1a4ac3564e9a62b83a40cd612b0d4c7e9110daeaa",
+   "cutoff": "2025-09-01"
+  },
+  {
+   "job_id": "S2__ollama__qwen2.5_3b__A1",
+   "setting": "S2",
+   "provider": "ollama",
+   "model": "qwen2.5:3b",
+   "image_id": "357c53fb659c",
+   "prompt_version": "a4-prompt/0.2",
+   "cases_file": "research/datasets/evaluation/cases_v5/hosted_sample_D087/hosted_vulnerable_T2025-09-01.jsonl",
+   "cases_sha256": "69a48637a20b7ef9f88557e1a4ac3564e9a62b83a40cd612b0d4c7e9110daeaa",
+   "cutoff": "2025-09-01"
+  },
+  {
+   "job_id": "S2__ollama__qwen2.5_7b__A1",
+   "setting": "S2",
+   "provider": "ollama",
+   "model": "qwen2.5:7b",
+   "image_id": "845dbda0ea48",
+   "prompt_version": "a4-prompt/0.2",
+   "cases_file": "research/datasets/evaluation/cases_v5/hosted_sample_D087/hosted_vulnerable_T2025-09-01.jsonl",
+   "cases_sha256": "69a48637a20b7ef9f88557e1a4ac3564e9a62b83a40cd612b0d4c7e9110daeaa",
+   "cutoff": "2025-09-01"
+  }
+ ]
+}
