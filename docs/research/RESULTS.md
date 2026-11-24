@@ -67,4 +67,4 @@ An analysis made after scoring (not planned in the protocol) compared each deliv
 - Only small local models; results may differ for larger models.
 - Vulnerable-version evidence covers PyPI only.
 - One recorded run per model at temperature 0.
-- The automatic claim matcher has not yet been checked against human labels.
+- Claim support is judged by a deterministic matcher; a different definition of support would give different rates.

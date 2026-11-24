@@ -1,12 +1,12 @@
 # Agent contracts
 
 Status 2026-11-17:
-- **Agent 1** is implemented (see "Agent 1: dependency extraction" below, D-049 to D-052).
-- **Agent 2** is implemented (see "Agent 2: registry verification and evidence lookup" below, D-053).
-- **Agent 3 v2** and the adapter to the frozen v1 baseline are implemented (see "Agent 3: risk findings" below, D-055 to D-058, D-060, D-061).
-- **Agent 5** is implemented (see "Agent 5: independent verification" below, D-059 to D-061).
+- **Agent 1** is implemented (see "Agent 1: Dependency Extraction Agent" below, D-049 to D-052).
+- **Agent 2** is implemented (see "Agent 2: Evidence Collection Agent" below, D-053).
+- **Agent 3 v2** and the adapter to the frozen v1 baseline are implemented (see "Agent 3: Risk Assessment Agent" below, D-055 to D-058, D-060, D-061).
+- **Agent 5** is implemented (see "Agent 5: Verification Agent" below, D-059 to D-061).
 - The **Agent 3 v1 baseline** contract is implemented. It is documented below from the code in `src/multi_agentic_security/agents/agent3_risk/baseline_v1/` and is unchanged.
-- **Agent 4** is implemented (see "Agent 4: recommendation" below, D-062): the R0 rules, the provider-independent LLM interface and the Groq adapter (D-064, D-068). The design rationale is in `SYSTEM_ARCHITECTURE.md`.
+- **Agent 4** is implemented (see "Agent 4: Recommendation and Remediation Agent" below, D-062): the R0 rules, the provider-independent LLM interface and the Groq adapter (D-064, D-068). The design rationale is in `SYSTEM_ARCHITECTURE.md`.
 
 ## Requirements that apply to every new contract (from approved decisions)
 
@@ -135,7 +135,7 @@ Rules that apply to every contract:
 - In held-out experiments `registry_mode` must not be `live` for target existence checks, because today's registry reflects takedowns after the cut-off (added in the review).
 - A failure is returned as a `Failure`, never replaced by a default.
 
-### Agent 1: dependency extraction (implemented, D-049 to D-052)
+### Agent 1: Dependency Extraction Agent (implemented, D-049 to D-052)
 
 - **Code:** `src/multi_agentic_security/agents/agent1_ingestion/` (stage version `agent1/0.1`), output `contracts.pipeline.ExtractionResult`.
 - **Entry points:** `extract_files(project_id, files)` for in-memory files, `extract_zip(project_id, data, upload_name)`, `extract_directory(project_id, root, label=...)`, `extract_text(project_id, text)` for pasted text, `extract_git(project_id, url, fetcher)` for a public GitHub link (the fetcher is required; `HttpsFetcher` is the real one). Optional `limits=IntakeLimits(...)` and an injectable clock.
@@ -147,7 +147,7 @@ Rules that apply to every contract:
 - **Safety:** uploads are read in memory as text; nothing is extracted to disk, imported, installed or executed (Python is parsed to a syntax tree only, JavaScript is tokenized); links are never followed; only files Agent 1 parses are read; repository links are downloaded as one archive into memory, never cloned.
 - **Import mapping:** Python imports map to a package only through `import_map/1` or a package named by a manifest or install command in the same upload (the upload's own package wins over the table); otherwise the record is `unresolved` with the import name as a candidate in its reasons. Agent 2 does not look up such candidates (owner decision, D-053 b).
 
-### Agent 2: registry verification and evidence lookup (implemented, D-053)
+### Agent 2: Evidence Collection Agent (implemented, D-053)
 
 - **Code:** `src/multi_agentic_security/agents/agent2_registry/` (stage version `agent2/0.1`), output `contracts.pipeline.RegistryResult`. Evidence index: `src/multi_agentic_security/evidence_store/` (`evidence_store/1`, read-only, shared with Agents 3 and 5).
 - **Entry point:** `verify(extraction, *, mode, client, evidence_store, evidence_cutoff=None, clock=...)`. `mode` is `off`, `snapshot` (`SnapshotRegistryClient(folder)`) or `live` (`HttpRegistryClient()`, constructed explicitly by the caller; there is no default client). `EvidenceStore.load(root)` loads the allow-listed current tables.
@@ -160,7 +160,7 @@ Rules that apply to every contract:
 - **Evidence-store record (`pipeline/0.2`, D-054):** `RegistryResult.evidence_store` lists every allow-listed table with loaded flag, record count, SHA-256, schema/adapter/source versions, licenses and undated count.
 - **Live use:** first live check (16 lookups): statuses as expected. PyPI returns 404 for removed malicious packages, so `not_found` alone never means nonexistent. A snapshot folder may contain `RUN_RECORD.json` (skipped when loading).
 
-### Agent 3: risk findings (implemented, D-055)
+### Agent 3: Risk Assessment Agent (implemented, D-055)
 
 - **Code:** `src/multi_agentic_security/agents/agent3_risk/` (stage `agent3/0.1`, findings `agent3_v2/0.1`): `assess.py`, `versions.py`, `similarity_v2.py`, `v1_adapter.py` (D-055 to D-058). The npm range grammar is in the neutral module `src/multi_agentic_security/versioning/npm_semver.py`, shared with Agent 5 (D-058). Output `contracts.pipeline.RiskResult`.
 - **Entry point:** `assess(extraction, registry, *, evidence_store, clock=...)`. The cut-off is taken from `registry.evidence_cutoff`.
@@ -171,7 +171,7 @@ Rules that apply to every contract:
 - **Failure codes (stage `agent3`):** `a3.input.{project_mismatch,duplicate_registry_result,unknown_dependency,missing_registry_result}`, `a3.evidence.{store_missing,not_looked_up_by_agent2,store_mismatch,store_incomplete,unknown_id,wrong_package,after_cutoff}`.
 - **Limits:** declared npm ranges follow the documented node-semver grammar (pre-releases only through a comparator naming the same version); evidence ranges (both ecosystems) are ordered intervals that include pre-releases, as OSV orders versions by precedence (D-058, D-060; `versioning/evidence_ranges.py`); `*`, `""` and `latest` install the `latest` dist-tag even when it is a pre-release, and `x` is an ordinary range (D-058, D-060); under a cut-off a listed pre-release that `*` could install is `undetermined`; tags, URLs and aliases stay `undetermined`. The resolved version ignores other constraints of the environment. A release missing from the registry list is `undetermined`. Similarity uses one edit only and is off in held-out runs before the popular lists' date (2026-11-01). Agent 2 sets `retrieved_after_cutoff` on every looked-up result when a cut-off is given.
 
-### Agent 4: recommendation (implemented, D-062 to D-064)
+### Agent 4: Recommendation and Remediation Agent (implemented, D-062 to D-064)
 
 - **Code:** `src/multi_agentic_security/agents/agent4_recommendation/` (stage `agent4/0.1`): `packet.py` (inputs per variant), `rules.py` (R0), `llm.py` (provider-independent interface, recorded client, raw-response stores), `prompt.py`, `parse.py`, `recommend.py`, `providers.py` (Groq adapter, the only module with network access, D-064, D-068). Output `contracts.pipeline.RecommendationResult`; the contract is unchanged.
 - **Entry point:** `recommend(extraction, registry, risk, *, evidence_store, variant="R0", llm=None, response_store=None, options=None, clock=...)`. One recommendation per Agent 1 dependency, in Agent 1's order. The cut-off is `registry.evidence_cutoff`. `RecommendationResult.stage_version` is `agent4/0.1+r0/0.1` or `agent4/0.1+a4-prompt/0.1`.
@@ -223,7 +223,7 @@ Rules that apply to every contract:
   - Upgrade targets ignore other constraints of the project; the semver distance and constraint compatibility are reported by Agent 5 (D-036).
   - Targets in held-out runs need recorded registry lookups.
 
-### Agent 5: independent verification (implemented, D-059 to D-061)
+### Agent 5: Verification Agent (implemented, D-059 to D-061)
 
 - **Code:** `src/multi_agentic_security/agents/agent5_verification/` (stage `agent5/0.1`): `verify.py` (checks and verdict), `versions.py` (Agent 5's own version logic). Output `contracts.pipeline.VerificationResult`; the contract is unchanged.
 - **Entry point:** `verify_recommendations(extraction, registry, recommendations, *, evidence_store, target_client=None, enabled_checks=None, clock=...)`. `recommendations` is a `RecommendationResult` or a mapping of the same shape; each recommendation is validated on its own. `target_client` is a registry client used only for recommended targets and for claim subjects other than the dependency (`SnapshotRegistryClient` in experiments). The cut-off is `registry.evidence_cutoff`.

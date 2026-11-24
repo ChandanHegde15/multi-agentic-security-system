@@ -6,13 +6,13 @@
 \usepackage{booktabs}
 \usepackage{url}
 \usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
 \usetikzlibrary{positioning,arrows.meta,calc,fit,backgrounds}
-% Figure colors: distinct hues that also differ in grey level when printed.
-\definecolor{detc}{HTML}{2D5BD7}   % deterministic agents
-\definecolor{llmc}{HTML}{B86E00}   % language model
-\definecolor{verc}{HTML}{17835A}   % verifier
-\definecolor{datac}{HTML}{4F5B69}  % recorded data
-\definecolor{evalc}{HTML}{7A4FC2}  % evaluation only
+\definecolor{cblue}{HTML}{2D5BD7}
+\definecolor{corange}{HTML}{D9822B}
+\definecolor{cgreen}{HTML}{1E9E6A}
+\definecolor{cgrey}{HTML}{5F6B7A}
 \usepackage[hidelinks]{hyperref}
 
 % Second row of authors (standard IEEE conference template macro).
@@ -26,7 +26,7 @@
 
 \begin{document}
 
-\title{Language Models and the Software Supply Chain: A Review of Package Hallucination, Malicious Packages and Dependency Remediation}
+\title{Agentic Defense Against AI-Hallucinated Package Poisoning Using Multi-Agent Dependency Verification}
 
 \author{
 \IEEEauthorblockN{Chandan Prakash Hegde}
@@ -73,332 +73,294 @@ spoorthi.nayaka123@gmail.com}
 
 \maketitle
 \begin{abstract}
-Large language models now write code, choose dependencies and propose fixes for flagged packages, and each of
-these steps can open a path for a software supply-chain attack. This review brings together 36 sources on four
-connected topics: package hallucination in generated code, typosquatting and package confusion, detection of
-malicious packages, and dependency decisions and their remediation, together with work on grounding and
-verifying model output. For each study we record the problem, data, method and main finding as reported by its
-authors, and we compare the studies on the ecosystems they cover, the label families they consider, whether a
-language model is involved, whether an independent checker validates its output, and whether decisions are
-judged against the evidence available at the time. Detection is well studied and already strong, and the
-generation of nonexistent or vulnerable dependencies has been measured at scale. Three questions remain largely
-open: whether the fix a model recommends for a flagged dependency is itself safe across label families, whether
-the reasons it gives are supported by the evidence it cites, and what an independent deterministic verifier
-adds and costs. We close with the research gaps and directions that follow from this comparison.
+% AUTHOR: rewrite in your own words.
+Language models now write code, choose dependencies and suggest how to fix packages that a scanner has flagged.
+Each of these steps can open a path for a software supply-chain attack. This paper surveys 36 sources on package
+hallucination, typosquatting and package confusion, malicious-package detection, dependency remediation, and the
+grounding and verification of model output. We summarize what each study measured and found, compare the closest
+studies on the tasks and label families they cover, and identify six research gaps. The main finding is that
+detection is mature and that hallucinated and vulnerable dependencies are well measured during code generation,
+while the step that follows detection, the fix a model recommends, is largely unexamined: no study checks whether
+that fix is safe across label families, whether its reasons are supported by evidence, or what an independent
+verifier adds. Based on these gaps, we propose a five-agent architecture in which only one agent uses a language
+model and a separate rule-based agent verifies every recommendation before it reaches the developer, together
+with a plan for evaluating it.
 \end{abstract}
 
 \begin{IEEEkeywords}
-Dependency remediation, large language models, literature review, malicious packages, package hallucination,
+Dependency remediation, large language models, literature survey, malicious packages, package hallucination,
 software supply chain security, typosquatting, verification.
 \end{IEEEkeywords}
 
 % =====================================================================================================
 \section{Introduction}
-Open-source registries such as PyPI and npm let anyone publish a package under an unused name. That openness is
-what makes them useful, and it is also what attackers rely on: a package published under a misspelled name, a
-name that imitates a popular project, or a name that a language model tends to invent can reach developers who
-install it without checking~\cite{ladisa2023,ohm2020}. Language models add a new route. They write import
-statements and dependency lists, recommend libraries and versions, and are increasingly asked to fix dependencies
-that a scanner has flagged. Spracklen et al.\ found that 19.7\% of the packages recommended by 16 code models did
-not exist~\cite{spracklen2025}, and Singla et al.\ found that coding agents chose a known-vulnerable version in
-2.46\% of the dependency changes they made~\cite{singla2026}.
+Public registries such as PyPI and npm let anyone publish a package under an unused name. Attackers use this
+openness: a misspelled name, a name that imitates a popular project or a name that a language model tends to
+invent can reach developers who install it without checking~\cite{ladisa2023,ohm2020}. Language models add a new
+route. Spracklen et al.\ found that 19.7\% of the packages recommended by 16 code models did not
+exist~\cite{spracklen2025}, and Singla et al.\ found that coding agents chose a known-vulnerable version in 2.46\%
+of the dependency changes they made~\cite{singla2026}.
 
-The literature on these risks has grown in several directions at once, and the directions rarely cite each
-other. Studies of package hallucination look at what a model generates. Studies of typosquatting and malware
-look at how to detect a bad package. Studies of dependency updates look at deterministic tools such as
-Dependabot. Work on grounding and verification comes mainly from natural language processing. This review
-connects the four strands around one question: once a risky dependency has been found, can a language model be
-trusted to recommend a safe fix, and can its reasons be checked?
-
-The contributions of this review are:
-\begin{itemize}
-\item a structured summary of 36 sources across package hallucination, package confusion, malicious-package
-detection, dependency remediation and output verification, with the findings reported as their authors state
-them;
-\item a comparison of the closest studies on ecosystem, label families, task, use of a language model,
-independent verification, time-aware evaluation and per-claim support (Table~\ref{tab:compare});
-\item a list of research gaps and open challenges that follow from that comparison.
-\end{itemize}
+Research on these risks has grown in separate strands. Hallucination studies look at generated code, typosquatting
+and malware studies look at detection, and dependency studies look at update tools. This survey brings the strands
+together around one question: once a risky dependency has been found, can a language model be trusted to recommend
+a safe fix, and can its reasons be checked? This survey was carried out before building any system, to decide
+what such a system should do and how it should be evaluated. Our contributions are a structured survey of 36
+sources (Table~\ref{tab:survey}), a comparison of the closest studies (Table~\ref{tab:compare}), six research gaps,
+and a proposed system and evaluation plan that address them (Section~\ref{sec:proposed}).
 
 % =====================================================================================================
-\section{Review Method}
+\section{Survey Method}
 \label{sec:method}
-\textbf{Search.} Sources were located in November 2026 through searches of arXiv, publisher and proceedings
-pages, and DOI records, using combinations of the terms package hallucination, slopsquatting, typosquatting,
-package confusion, malicious package detection, dependency update, vulnerable dependency, remediation,
-retrieval-augmented generation, citation and verification. A second set of papers came from the authors' own
-archive of IEEE and ACM papers on supply-chain security and was screened for relevance.
+Sources were found in November 2026 through arXiv, publisher and proceedings pages and DOI records, using terms
+such as package hallucination, slopsquatting, typosquatting, package confusion, malicious package detection,
+dependency update, remediation, retrieval-augmented generation and verification. A second set came from the
+authors' archive of IEEE and ACM papers on supply-chain security. A source was included if it measures or detects
+hallucinated, typosquatted or malicious packages, studies how dependencies are chosen or updated, or evaluates the
+grounding or verification of model output. One vendor report is included and marked as grey literature. For every
+source the bibliographic record was confirmed; content was taken from the full text where available (12 sources)
+and from the abstract otherwise. Numbers are reported as the sources state them.
 
-\textbf{Inclusion.} A source was included if it (a) measures or detects package hallucination, typosquatting,
-package confusion or malicious packages, (b) studies how dependencies are chosen, updated or remediated, or
-(c) evaluates grounding, citation support or verification of model output in a way that transfers to security
-claims. One vendor report is included and marked as grey literature. One dataset without a paper is included
-because it supplies human-reviewed labels.
+% =====================================================================================================
+\section{Literature Survey}
+\label{sec:survey}
 
-\textbf{Verification.} For every source, the bibliographic record was confirmed on the publisher page, the
-proceedings page, the arXiv record or the Crossref DOI record. Content was taken from the full text where it
-was accessible and from the abstract otherwise; Table~\ref{tab:sources} lists the depth for each group. Numbers
-are reported as the sources state them. None of them was reproduced for this review.
+\subsection{Package hallucination in generated code}
+Spracklen et al.~\cite{spracklen2025} generated 576{,}000 code samples with 16 models. Open models invented
+packages far more often than commercial ones (21.7\% against 5.2\%), 43\% of the invented names reappeared in all
+ten repeated runs, and only 13.4\% were within two edits of a real name, so most are not typos. Retrieval,
+self-refinement and fine-tuning reduced the rate without removing it. Krishna et al.~\cite{krishna2025} found that
+the rate depends on model, language, size and task. Twist et al.~\cite{twist2026} changed the developer's request
+instead of the model: invented library names were accepted in up to 99\% of tasks, and a registry-existence tool
+helped only partly. Raj and Sahu~\cite{raj2026} found that about half of the names flagged in local models already
+existed as lookalike packages, which an existence check cannot catch. Miranda-Pena et al.~\cite{mirandapena2026}
+measured the limit of a deterministic static analyzer, which caught 14--85\% of library hallucinations. Liu
+et al.~\cite{liu2026} built a taxonomy in which library knowledge accounts for 25.99\% of code hallucinations, and
+Daoud~\cite{daoud2026} reviewed 16 studies and grouped security-related hallucinations into five types. Li and
+Gao~\cite{ligao2025} found eleven supply-chain threats in generated code, and Latendresse et
+al.~\cite{latendresse2024} showed that library recommendations also raise license and compatibility problems. The
+dataset of Öz~\cite{oz2026} provides reviewed labels for nonexistent Python packages.
 
-\begin{table}[t]
-\caption{Sources by topic and depth of reading}
-\label{tab:sources}
+\subsection{Typosquatting and package confusion}
+Vu et al.~\cite{vu2020} studied typosquatting and combosquatting on PyPI, and Taylor et al.~\cite{taylor2020}
+proposed a defense against it. Neupane et al.~\cite{neupane2023} described 13 confusion mechanisms from more than
+1{,}200 attacks, many of them semantic rather than spelling-based. Truong et al.~\cite{truong2025} combined string
+metrics with a classifier and published labeled typosquat pairs, and Jiang et al.~\cite{jiang2026} used package
+metadata to cut the false-positive rate of confusion detection from 80\% to 28\%. Name similarity alone therefore
+misses many attacks and raises many false alarms.
+
+\subsection{Malicious packages and their detection}
+Ohm et al.~\cite{ohm2020} reviewed real supply-chain attacks, and Ladisa et al.~\cite{ladisa2023} organized 107
+attack vectors into a taxonomy in which typosquatting, dependency confusion and package compromise are separate.
+Duan et al.~\cite{duan2021} reported 339 new malicious packages, and Guo et al.~\cite{guo2023} found that more than
+72\% of 4{,}669 malicious PyPI files stayed available on mirrors long after discovery. Detection is now strong.
+Amalfi~\cite{sejfia2022} and SpiderScan~\cite{huang2024} add deterministic or sandboxed checks to reduce false
+positives, and MalPacDetector~\cite{wang2025mal} keeps only model-proposed features that recur. With language
+models, Zahan et al.~\cite{zahan2025} reached a precision of 0.99 on npm, LAMPS~\cite{zeshan2026} uses four
+cooperating agents, CHASE~\cite{toda2025} pairs agents with deterministic tools and reached a precision of 0.996,
+and IntelGuard~\cite{guo2026} retrieves from threat-intelligence reports. Ryan et al.~\cite{ryan2026} separated
+verdict from explanation across 13 models: verdicts were often accurate, but the indicators the models gave were
+much weaker and sometimes not present in the package.
+
+\subsection{Dependency decisions and remediation}
+Decan et al.~\cite{decan2018} showed how vulnerabilities propagate in the npm dependency network. Dependabot lowers
+technical lag, but developers found its information too sparse to trust and asked for
+transparency~\cite{he2023}. Pearce et al.~\cite{pearce2023} found that models repair synthetic vulnerable code
+better than real code. Wang et al.~\cite{wang2026} found that many library versions specified by ten models carry
+known vulnerabilities, fewer when constraints are anchored to external data. Singla et al.~\cite{singla2026}
+analyzed 117{,}062 dependency changes and judged each one only against the advisories published before it. A vendor
+report, not peer reviewed, states that 27.8\% of the upgrade versions a large model recommended did not
+exist~\cite{sonatype2026}. Tools used in practice, such as scanners built on OSV~\cite{osv} and Dependabot, are
+deterministic: they detect risky dependencies or apply rule-based updates, but do not evaluate the advice that
+model assistants give.
+
+\subsection{Grounding and verification of model output}
+Retrieval-augmented generation grounds an answer in retrieved documents~\cite{lewis2020}. Gao et
+al.~\cite{gao2023} checked whether generated statements are supported by the passages they cite and found that even
+the best systems lacked full support about half of the time. Chain-of-verification lets a model check its own
+answer~\cite{dhuliawala2024}, but in the package setting self-refinement helped little~\cite{spracklen2025}. A
+verifier that shares no model with the generator is the alternative; its closest precedents check detections or
+generated code~\cite{sejfia2022,toda2025,mirandapena2026}, not recommended fixes.
+
+\begin{table*}[t]
+\caption{Summary of the key studies}
+\label{tab:survey}
 \centering
 \small
-\begin{tabular}{@{}lrl@{}}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{24mm}p{30mm}p{42mm}p{42mm}p{36mm}@{}}
 \toprule
-Topic & Sources & Read from \\
+Study & Focus & Data and method & Main finding & Limitation for remediation \\
 \midrule
-Package hallucination & 10 & full (3), partial (1), abstract (5), dataset (1) \\
-Typosquatting and confusion & 5 & abstract (3), record (2) \\
-Malicious packages & 12 & full (1), partial (4), abstract (6), record (1) \\
-Dependencies and remediation & 6 & full (2), partial (1), abstract (3) \\
-Grounding and verification & 3 & abstract (3) \\
+Spracklen~\cite{spracklen2025} & Package hallucination & 16 models, 576k samples, names checked against registries & 19.7\% invented; 43\% repeat in all runs & Generation only \\
+Twist~\cite{twist2026} & Developer requests & 7 models, 4{,}173 prompts & Invented names accepted in up to 99\% of tasks & Generation only \\
+Raj and Sahu~\cite{raj2026} & Local models & Existence check and classifier & About half of flagged names are registered lookalikes & Response is regeneration \\
+Miranda-Pena~\cite{mirandapena2026} & Deterministic checking & Static analysis of generated code & Detects 14--85\% of library hallucinations & Checks code, not fixes \\
+Neupane~\cite{neupane2023} & Package confusion & More than 1{,}200 attacks & 13 mechanisms, many semantic & Detection only \\
+Jiang~\cite{jiang2026} & Confusion detection & Package metadata, several registries & False positives cut from 80\% to 28\% & Detection only \\
+Zahan~\cite{zahan2025} & Malware detection & GPT-4 against CodeQL, 5{,}115 npm packages & Precision 0.99 & Detection only \\
+Toda (CHASE)~\cite{toda2025} & Malware detection & Multi-agent with tools, 3{,}000 PyPI packages & Precision 0.996, recall 0.984 & Detection only \\
+Ryan~\cite{ryan2026} & Verdicts and reasons & 13 models, 4{,}070 PyPI packages & Indicator F1 0.48 against high verdict F1 & Detection only \\
+Wang~\cite{wang2026} & Specified versions & 10 models, 1{,}000 tasks & Many vulnerable versions & Vulnerable family only \\
+Singla~\cite{singla2026} & Agent dependency changes & 117{,}062 changes, time-aware & 2.46\% introduce a vulnerable version & No checker, no reasons \\
+He~\cite{he2023} & Dependabot & GitHub projects & Lowers lag; trust is limited & Rule-based, no model \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+% =====================================================================================================
+\section{Comparative Analysis}
+\label{sec:compare}
+Table~\ref{tab:compare} compares the studies closest to model-based remediation on five properties. Two of them are
+natural base studies for new work: Spracklen et al.~\cite{spracklen2025} for the scale and predictability of
+package hallucination, and Singla et al.~\cite{singla2026} for decisions judged against the advisories known at
+the time. Three patterns stand out. Hallucinated and vulnerable dependencies are well measured during generation.
+Detection of malicious packages is accurate, and multi-agent and tool-assisted designs are established. No study
+evaluates the fix for an already flagged dependency, and only one checks the reasons a model gives, on the
+detection side~\cite{ryan2026}.
+
+\begin{table}[t]
+\caption{Properties of the closest studies}
+\label{tab:compare}
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Study & Fix & Families & Independent & Time- & Reasons \\
+ & evaluated & $>$1 & check & aware & checked \\
 \midrule
-Total & 36 & \\
+Spracklen~\cite{spracklen2025} & -- & -- & -- & -- & -- \\
+Twist~\cite{twist2026} & -- & -- & partly & -- & -- \\
+Miranda-Pena~\cite{mirandapena2026} & -- & -- & $\checkmark$ & -- & -- \\
+CHASE~\cite{toda2025} & -- & -- & partly & -- & -- \\
+Ryan~\cite{ryan2026} & -- & -- & -- & -- & partly \\
+Wang~\cite{wang2026} & -- & -- & -- & -- & -- \\
+Singla~\cite{singla2026} & partly & -- & -- & $\checkmark$ & -- \\
+Sonatype~\cite{sonatype2026} & partly & $\checkmark$ & -- & -- & -- \\
+\midrule
+Proposed (planned) & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 % =====================================================================================================
-\section{Package Hallucination in Generated Code}
-\label{sec:halluc}
-\textbf{Measurement at scale.} Spracklen et al.~\cite{spracklen2025} generated 576{,}000 code samples with 16
-models from Stack Overflow questions and from descriptions of the most-downloaded PyPI and npm packages, and
-compared every imported name with the registries' master lists. Overall, 19.7\% of the recommended packages did
-not exist, with 21.7\% for open models against 5.2\% for commercial ones, and the study counted 205{,}474 unique
-invented names. Two findings matter for attackers. First, 43\% of the invented names reappeared in all ten
-repeated runs, so they are predictable. Second, only 13.4\% were within one or two edits of a real name, so most
-are not typos and a name-similarity check would miss them. Retrieval, self-refinement and fine-tuning reduced
-the rate without removing it, and fine-tuning cut one model's HumanEval pass@1 from 51.4\% to 25.3\%.
-Krishna et al.~\cite{krishna2025} measured the same effect across languages and models and found that it
-depends on model, language, size and task, and falls as coding ability rises.
-
-\textbf{The developer's request.} Twist et al.~\cite{twist2026} changed the prompt instead of the model. With
-seven models and 4{,}173 prompts built from realistic variations, one-character misspellings of a library name
-triggered hallucinations in up to 26\% of tasks, multi-character misspellings in up to 79\%, and invented
-library names were accepted in up to 99\%. Giving the model a PyPI-existence tool helped but left up to 38.79\%
-of the user-mistake cases accepted. Their benchmark, LibHalluBench, is a source of test prompts for later work.
-
-\textbf{Local models and lookalikes.} Raj and Sahu~\cite{raj2026} studied local coding models with a two-layer
-detector: a deterministic PyPI-existence check followed by a classifier on name and metadata features. About half
-of the hallucinations they flagged were packages that already exist on PyPI as low-quality lookalikes of
-well-known projects. The existence check alone could not catch these.
-
-\textbf{Deterministic checking.} Miranda-Pena et al.~\cite{mirandapena2026} asked how much a static analyzer can
-catch. Models used nonexistent library features in 8.1--40\% of responses; static analysis detected 14--85\% of
-the library hallucinations, with an estimated upper bound of 48.5--77\%. The value of this result is the framing:
-a deterministic checker has a measurable ceiling, and it should be reported next to what the checker removes.
-
-\textbf{Taxonomies and surveys.} Liu et al.~\cite{liu2026} built a taxonomy of hallucinations in generated code
-from 3{,}120 samples labeled by ten annotators. Knowledge hallucinations were 34.90\% of all hallucinations, and
-library and project knowledge made up 25.99\%. In a small experiment, retrieval of repository context lowered the
-share of hallucinatory samples from 43.06\% to 20.14\% for one model. Daoud~\cite{daoud2026} reviewed 16 studies
-from 2024 and 2025 and grouped security-related hallucinations into five types, the first of which is dependency
-or package hallucination, and grouped mitigations into grounding and retrieval, feedback-driven refinement,
-validation and further categories.
-
-\textbf{Wider supply-chain effects.} Li and Gao~\cite{ligao2025} found eleven supply-chain threats in generated
-code, including external components and CI configuration, in all four models they tested, and proposed a
-prompt-based defense and warnings for users. Latendresse et al.~\cite{latendresse2024} asked GPT-3.5 Turbo
-10{,}000 Stack Overflow questions: it used third-party libraries about 10\% more often than human answers, 14.2\%
-of its recommended libraries had copyleft licenses, and 6.5\% did not work out of the box. The dataset of
-Öz~\cite{oz2026} provides human-reviewed labels for nonexistent Python packages.
-
-\textbf{What is missing.} Every study in this section measures what a model generates while writing code or
-answering a question. None of them asks what the model recommends after a risky dependency has already been
-detected, and none checks whether the reasons the model gives are supported.
-
-% =====================================================================================================
-\section{Typosquatting and Package Confusion}
-\label{sec:typo}
-Vu et al.~\cite{vu2020} studied typosquatting and combosquatting on PyPI, and Taylor et al.~\cite{taylor2020}
-proposed a defense against package typosquatting. Neupane et al.~\cite{neupane2023} broadened the problem: from
-more than 1{,}200 documented attacks they described 13 confusion mechanisms, many of them semantic rather than
-spelling-based, and existing tools missed most of the pairs their detectors flagged. Truong
-et al.~\cite{truong2025} combined string metrics, including an extended Damerau--Levenshtein distance, with a
-classifier on package features and reported an accuracy of 98.4\% on their own data; they also published their
-typosquat pairs. Jiang et al.~\cite{jiang2026} used package metadata to filter benign lookalikes, reduced the
-false-positive rate from 80\% to 28\% across several registries, and confirmed 630 attacks with an industry
-partner.
-
-Two lessons follow. Edit distance covers only part of package confusion~\cite{neupane2023}, and name similarity on
-its own produces many false alarms~\cite{jiang2026}. A system that recommends a replacement for a typosquatted
-package therefore cannot rely on similarity to judge whether its own proposal is safe.
-
-% =====================================================================================================
-\section{Malicious Packages and Supply-Chain Attacks}
-\label{sec:mal}
-\textbf{Attacks and taxonomies.} Ohm et al.~\cite{ohm2020} reviewed real open-source supply-chain attacks.
-Ladisa et al.~\cite{ladisa2023} organized 107 attack vectors, linked to 94 incidents and 33 safeguards, into a
-taxonomy validated with 17 experts and 134 developers; typosquatting, dependency confusion and the compromise of
-an existing package are separate vectors in it. Duan et al.~\cite{duan2021} combined metadata, static and
-dynamic analysis across registries and reported 339 new malicious packages, of which maintainers confirmed 278.
-Guo et al.~\cite{guo2023} studied 4{,}669 malicious PyPI package files: more than half showed several malicious
-behaviors, and more than 72\% remained available on mirrors long after discovery.
-
-\textbf{Program-analysis and learned detectors.} Amalfi~\cite{sejfia2022} combines classifiers with a reproducer
-and a clone detector that remove false positives, and found 95 previously unknown malicious npm packages.
-SpiderScan~\cite{huang2024} models malicious behavior as graphs and ends with a verifier that executes the
-package in a sandbox and asks a language model whether each sensitive call is malicious; it reached an F1 of
-92.9\% on public data and found 249 unknown malicious packages. MalPacDetector~\cite{wang2025mal} uses a
-language model to propose behavior features and keeps only features that recur above a frequency threshold, so
-that a few wrong answers do not affect the result; it reported a false-positive rate of 1.3\%.
-
-\textbf{Language models as detectors.} Zahan et al.~\cite{zahan2025} compared GPT-3 and GPT-4 with 39 CodeQL
-rules on 5{,}115 npm packages; GPT-4 reached a precision of 0.99 and an F1 of 0.97, and a static pre-screen cut
-the files sent to the model by 77.9\%. LAMPS~\cite{zeshan2026} uses four role-specific agents for PyPI and
-reported 97.7\% accuracy on 6{,}000 balanced files. CHASE~\cite{toda2025} pairs a supervisor agent with worker
-agents and deterministic tools such as decoders and a sandbox, and reported a precision of 0.996 and a recall of
-0.984 on 3{,}000 PyPI packages; its authors argue that reliability comes from a design that compensates for model
-weaknesses, not from better individual models. Ryan et al.~\cite{ryan2026} compared 13 models on 4{,}070 PyPI
-packages and separated the verdict from the explanation: package-level F1 ranged from 0.40 to 0.99, while the
-weighted F1 for specific indicators was 0.48, and the models sometimes reported indicators that were not in the
-package. Retrieval is also established: IntelGuard~\cite{guo2026} retrieves from more than 8{,}000 threat-intelligence
-reports and reported 99\% accuracy with a false-positive rate of 0.50\% on 4{,}027 packages, finding 54 previously
-unreported malicious PyPI packages.
-
-\textbf{What is missing.} Detection is mature. Several systems already combine language models with agents,
-retrieval or deterministic tools. The Ryan et al.\ result shows that a correct verdict can come with unreliable
-reasons, but none of these studies follows the detection with a recommendation and checks whether that
-recommendation, or its reasons, are safe.
-
-% =====================================================================================================
-\section{Dependency Decisions and Remediation}
-\label{sec:remed}
-Decan et al.~\cite{decan2018} studied how vulnerabilities are discovered and fixed in npm and how they propagate
-to dependent packages. He et al.~\cite{he2023} examined Dependabot: it lowers technical lag, but its compatibility
-scores were too sparse for developers to trust an update, 11.3\% of the projects studied stopped using it, and
-developers asked for configurability, autonomy, transparency and self-adaptability. Pearce et
-al.~\cite{pearce2023} found that language models repaired synthetic and hand-crafted vulnerable code but struggled
-to produce correct repairs on real-world examples.
-
-Two recent studies measure dependency decisions by models directly. Wang et al.~\cite{wang2026} studied the library
-versions that ten models specify on 1{,}000 Stack Overflow tasks and found that many carry known vulnerabilities,
-and that anchoring version constraints to external data reduced both vulnerable and incompatible choices. Singla
-et al.~\cite{singla2026} analyzed 117{,}062 dependency changes in pull requests written by coding agents and by
-people across seven ecosystems. Agents introduced a known-vulnerable version in 2.46\% of their changes, against
-1.64\% for people, and a patched version already existed in 86.58\% of the agent cases. Their design judges each
-change only against the advisories disclosed before it, which avoids hindsight. A vendor report, which is not peer
-reviewed, states that about 27.8\% of the upgrade versions recommended by a large model did not exist and that the
-model strategy improved security least among the strategies compared~\cite{sonatype2026}.
-
-\textbf{What is missing.} These studies cover vulnerable and nonexistent versions. Malicious and typosquatted
-targets are not measured, the reasons given for a change are not checked, and the effect of an independent
-checker on the delivered fix is not reported.
-
-% =====================================================================================================
-\section{Grounding and Verification of Model Output}
-\label{sec:ground}
-Retrieval-augmented generation conditions a model's answer on retrieved documents~\cite{lewis2020}. In the
-package setting, retrieval and existence tools reduce hallucination but do not remove it~\cite{spracklen2025,
-twist2026}. Gao et al.~\cite{gao2023} built a benchmark with automatic measures of citation quality and found
-that even the best systems lacked complete citation support about half of the time on one dataset. Their idea of
-checking each statement against the passage it cites transfers naturally to security claims such as ``this
-version is affected by advisory~$x$''. Chain-of-verification lets a model draft, question and revise its own
-answer~\cite{dhuliawala2024}; in the package setting, self-refinement helped little for one of the two models
-tested~\cite{spracklen2025}. An alternative is a verifier that shares no model with the generator and re-derives
-each check from recorded evidence. The closest precedents are the deterministic stages in Amalfi~\cite{sejfia2022}
-and CHASE~\cite{toda2025} and the static analyzer of Miranda-Pena et al.~\cite{mirandapena2026}, but all of these
-check detections or generated code, not recommended fixes.
-
-% =====================================================================================================
-\section{Comparison of the Closest Studies}
-\label{sec:compare}
-Table~\ref{tab:compare} compares the studies closest to model-based remediation. A dash means that the property is
-not part of the study as far as the source shows.
-
-\begin{table*}[t]
-\caption{Comparison of the closest studies (as reported by their authors)}
-\label{tab:compare}
-\centering
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}lllllccc@{}}
-\toprule
-Study & Ecosystems & Label families & Task & Language model & Independent & Time- & Per-claim \\
- & & & & & checker & aware & support \\
-\midrule
-Spracklen et al.~\cite{spracklen2025} & PyPI, npm & nonexistent & code generation & 16 models & -- & -- & -- \\
-Twist et al.~\cite{twist2026} & PyPI & nonexistent & code generation & 7 models & existence tool & -- & -- \\
-Raj and Sahu~\cite{raj2026} & PyPI & nonexistent, lookalike & generation, detection & local models & existence check, classifier & -- & -- \\
-Miranda-Pena et al.~\cite{mirandapena2026} & Python & library features & code generation & several & static analysis & -- & -- \\
-Zahan et al.~\cite{zahan2025} & npm & malicious & detection & GPT-3, GPT-4 & static pre-screen & -- & -- \\
-CHASE~\cite{toda2025} & PyPI & malicious & detection & multi-agent & tools in the loop & -- & -- \\
-Ryan et al.~\cite{ryan2026} & PyPI & malicious & detection & 13 models & -- & -- & indicators \\
-Wang et al.~\cite{wang2026} & -- & vulnerable & code generation & 10 models & -- & -- & -- \\
-Singla et al.~\cite{singla2026} & 7 ecosystems & vulnerable & agent changes & coding agents & -- & yes & -- \\
-Sonatype~\cite{sonatype2026} & 4 ecosystems & vulnerable, nonexistent & upgrade advice & one model & -- & -- & -- \\
-He et al.~\cite{he2023} & GitHub projects & outdated, vulnerable & automated updates & -- & -- & -- & -- \\
-\bottomrule
-\end{tabular}
-\end{table*}
-
-Three patterns stand out. First, the generation of nonexistent and vulnerable dependencies is well measured, at a
-scale of hundreds of thousands of samples~\cite{spracklen2025,singla2026}. Second, malicious-package detection is
-accurate, and multi-agent and tool-assisted designs are established~\cite{zahan2025,zeshan2026,toda2025}. Third,
-no study in the table evaluates the fix for a flagged dependency across malicious, typosquat, vulnerable and
-nonexistent families together, and only one checks the reasons a model gives, on the detection side and at the
-level of indicators~\cite{ryan2026}.
-
-% =====================================================================================================
 \section{Research Gaps}
 \label{sec:gaps}
-\textbf{G1: Per-claim support of remediation advice.} No study checks, claim by claim, whether the reasons a model
-gives for a dependency fix are supported by the evidence it cites. Citation evaluation exists for
-text~\cite{gao2023}, and explanation quality has been measured for detection~\cite{ryan2026}, but not for
-remediation.
+\textbf{G1: Support for the reasons.} No study checks, claim by claim, whether the reasons a model gives for a
+dependency fix are supported by the evidence it cites.
 
-\textbf{G2: Safety of the recommended target across families.} Work on versions covers vulnerable and nonexistent
-targets~\cite{wang2026,singla2026,sonatype2026}. Whether a recommended replacement is itself malicious or a
-typosquat, which is the attack described in~\cite{spracklen2025,neupane2023}, has not been measured.
+\textbf{G2: Safety of the recommended target.} Version studies cover vulnerable and nonexistent
+targets~\cite{wang2026,singla2026}. Whether a proposed replacement is itself malicious or a typosquat, the attack
+described in~\cite{spracklen2025,neupane2023}, has not been measured.
 
-\textbf{G3: The effect and cost of an independent verifier.} Deterministic stages exist inside
-detectors~\cite{sejfia2022,toda2025}, and the ceiling of static checking has been measured for generated
-code~\cite{mirandapena2026}. The paired effect of a verifier on delivered fixes, with the unsafe recommendations it
-removes, the acceptable ones it rejects and the coverage it costs, has not been reported.
+\textbf{G3: Effect and cost of a verifier.} Deterministic stages exist inside detectors~\cite{sejfia2022,toda2025},
+but the effect of an independent verifier on delivered fixes, including the safe answers it rejects and the
+coverage it costs, has not been reported.
 
-\textbf{G4: Rules against models.} Deterministic update tools are the established practice~\cite{he2023}, and one
-vendor report suggests they can beat model recommendations~\cite{sonatype2026}. A controlled, paired comparison on
-the same flagged dependencies is missing.
+\textbf{G4: Rules against models.} Rule-based update tools are the established practice~\cite{he2023}, and one
+vendor report suggests that they can do better than a model~\cite{sonatype2026}; a paired comparison on the same
+flagged dependencies is missing.
 
-\textbf{G5: Time-aware evaluation of remediation.} Singla et al.\ judge decisions against the advisories available
-at the time~\cite{singla2026}. Most other studies use current registry state, which can credit a system with
-knowledge it would not have had.
+\textbf{G5: Time-aware evaluation.} Only Singla et al.\ judge decisions against the evidence available at the
+time~\cite{singla2026}; most studies use today's registry state.
 
 \textbf{G6: Families kept separate.} Malicious, typosquat, vulnerable and nonexistent packages are distinct attack
-vectors~\cite{ladisa2023}. Studies usually address one family, and none compares remediation across them on the
-same footing.
+vectors~\cite{ladisa2023}, but no study compares remediation across them on the same footing.
 
 % =====================================================================================================
-\section{Open Challenges and Future Directions}
+\section{Proposed System}
+\label{sec:proposed}
+The gaps point to one requirement: a fix proposed by a language model should be checked by something that does not
+share the model's weaknesses. We therefore propose an architecture of five agents (Fig.~\ref{fig:proposed}).
+
+\begin{figure}[t]
+\centering
+\resizebox{0.92\columnwidth}{!}{%
+\begin{tikzpicture}[
+  font=\sffamily\footnotesize,
+  >={Stealth[length=2mm]},
+  node distance=5mm,
+  agent/.style={draw, rounded corners=3pt, line width=0.6pt, align=center, text width=46mm, minimum height=9mm,
+                inner sep=3pt, fill=cblue!8},
+  model/.style={agent, fill=corange!15},
+  check/.style={agent, fill=cgreen!15, line width=1.2pt},
+  side/.style={draw, rounded corners=3pt, line width=0.6pt, align=center, text width=22mm, minimum height=12mm,
+               inner sep=3pt, fill=black!4},
+  arrow/.style={->, line width=0.7pt},
+  read/.style={->, line width=0.6pt, densely dashed}
+]
+\node[align=center] (in) {Project dependencies};
+\node[agent, below=of in] (a1) {Dependency Extraction Agent};
+\node[agent, below=of a1] (a2) {Evidence Collection Agent};
+\node[agent, below=of a2] (a3) {Risk Assessment Agent};
+\node[model, below=of a3] (a4) {Recommendation and Remediation Agent};
+\node[check, below=of a4] (a5) {Verification Agent};
+\node[align=center, below=of a5] (out) {Verified advice to the developer};
+\foreach \x/\y in {in/a1, a1/a2, a2/a3, a3/a4, a4/a5, a5/out} \draw[arrow] (\x) -- (\y);
+\node[side, right=9mm of a3] (ev) {Evidence sources};
+\draw[read] (ev.north) |- (a2.east);
+\draw[read] (ev.south) |- (a5.east);
+\end{tikzpicture}}
+\caption{Proposed five-agent architecture. Only the Recommendation and Remediation Agent may use a language model;
+the Verification Agent checks its output against the evidence.}
+\label{fig:proposed}
+\end{figure}
+
+The \textbf{Dependency Extraction Agent} will list the project's dependencies. The \textbf{Evidence Collection
+Agent} will gather what is known about each package from advisories, malware and typosquat lists and registry data.
+The \textbf{Risk Assessment Agent} will flag risky packages, keeping each label family separate. The
+\textbf{Recommendation and Remediation Agent} will propose a fix for each flagged package with reasons that cite the
+evidence; it is the only agent that may use a language model, and a rule-based version will be built for
+comparison. The \textbf{Verification Agent} will check every fix and its reasons against the evidence before it
+reaches the developer. It will share no model with the recommender, and it will withhold any fix it cannot check.
+
+\textbf{Evaluation plan.} The system will be evaluated on held-out cases from all five label families, with the
+recommender run with and without the verifier and against the rule-based recommender. We plan to measure the share
+of unsafe fixes, the share of unsupported reasons, coverage (the share of cases that still receive a fix), and the
+verifier's precision and recall. To avoid hindsight, part of the evaluation will hide evidence published after
+chosen cut-off dates from the system while the scoring still uses all of it. Table~\ref{tab:design} shows how the
+plan addresses each gap.
+
+\begin{table}[t]
+\caption{How the proposed system addresses each gap}
+\label{tab:design}
+\centering
+\small
+\begin{tabular}{@{}p{8mm}p{76mm}@{}}
+\toprule
+Gap & Planned design choice \\
+\midrule
+G1 & Reasons must cite evidence; each reason is checked against the record it cites \\
+G2 & Every proposed target is checked for being malicious, nonexistent, a typosquat or vulnerable \\
+G3 & The same fixes are scored with the verifier off and on, including the coverage lost \\
+G4 & A rule-based recommender runs on the same cases as the language model \\
+G5 & Cut-off dates hide later evidence from the system but not from the scoring \\
+G6 & Each label family is evaluated and reported separately \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================================================
+\section{Challenges and Future Directions}
 \label{sec:future}
-\textbf{Ground truth for fixes.} There is no gold set of correct remediations. Safety can be defined from evidence
-records, but whether a safe upgrade is also applicable to a project needs human judgment or execution, and
-running untrusted packages raises its own risks~\cite{decan2018,he2023}.
-
-\textbf{Evidence that changes over time.} Advisories are published after the fact, registries remove packages, and
-mirrors keep malicious files available~\cite{guo2023}. Evaluations need recorded snapshots and cut-off dates so that
-results do not depend on the day they were computed.
-
-\textbf{Overlapping sources.} Malicious-package lists copy from each other, so two lists naming the same package
-are not independent confirmations. Reviews and benchmarks should record provenance for every label.
-
-\textbf{Explanations, not only verdicts.} The gap between verdict accuracy and indicator accuracy~\cite{ryan2026}
-suggests that explanations should be evaluated separately whenever a model justifies a security decision.
-
-\textbf{Scale and models.} Most measurements use a fixed set of models at one point in time. Results for small local
-models may not hold for larger hosted ones, and the reverse.
+\textbf{Ground truth.} There is no gold set of correct fixes; safety can be defined from evidence, but whether a
+safe upgrade suits a project needs project-level testing. \textbf{Changing evidence.} Advisories appear after the
+fact and mirrors keep malicious files~\cite{guo2023}, so evaluations need recorded snapshots and cut-off dates.
+\textbf{Overlapping sources.} Malicious-package lists copy each other and are not independent confirmations.
+\textbf{Explanations.} The gap between verdict and indicator accuracy~\cite{ryan2026} calls for checking reasons
+separately. \textbf{Scale.} Models change quickly, so results for one set of models may not hold for others, and
+any check made when a fix is chosen cannot see risks that are reported later.
 
 % =====================================================================================================
 \section{Conclusion}
-Research on language models and software dependencies has moved quickly. Package hallucination and vulnerable
-version choices are measured at scale, typosquatting and malware detection are mature, and multi-agent and
-tool-assisted designs are common. The step that connects detection to a safe outcome, the recommendation of a fix,
-has received much less attention. Whether that fix is safe across label families, whether its reasons are
-supported, and what an independent verifier adds and costs are the open questions this review identifies. Our
-companion study addresses them with a five-agent pipeline, a deterministic verifier and a frozen, time-aware
-evaluation protocol.
+% AUTHOR: rewrite in your own words.
+Package hallucination and vulnerable version choices are well measured, and malware detection is mature. The step
+that turns a detection into a safe outcome, the recommended fix, has received little attention. This survey
+identified six gaps around that step. To address them we proposed a system in which an independent, rule-based
+verification stage checks every recommended fix and its reasons against the evidence, and an evaluation plan that
+measures both the safety it adds and the coverage it costs. Building and evaluating this system is the next step
+of our work.
 
 % =====================================================================================================
 \begin{thebibliography}{99}
@@ -526,14 +488,14 @@ M.~U.~Zeshan, M.~Ibiyo, C.~Di~Sipio, P.~T.~Nguyen, and D.~Di~Ruscio,
 T.~Toda and T.~Mori, ``CHASE: LLM agents for dissecting malicious PyPI packages,'' in \emph{Proc. 2nd IEEE/ACM
 Int. Conf. AI-powered Software (AIware)}, 2025, doi:10.1109/AIware69974.2025.00008.
 
-\bibitem{ryan2026}
-A.~Ryan, I.~Khalil, A.~A.~Jahid, M.~Erfan, S.~Park, A.~A.~U.~Rahman, and M.~R.~Rahman,
-``An evaluation of large language models for detection of malicious Python packages,'' arXiv:2602.16304, 2026.
-
 \bibitem{guo2026}
 W.~Guo, S.~Song, J.~Guo, Z.~Xu, C.~Liu, H.~Ou, M.~Ge, and Y.~Liu, ``Bridging expert reasoning and LLM detection:
 A knowledge-driven framework for malicious packages,'' in \emph{Proc. ACM Web Conf.}, 2026, pp.~3554--3565,
 doi:10.1145/3774904.3792083.
+
+\bibitem{ryan2026}
+A.~Ryan, I.~Khalil, A.~A.~Jahid, M.~Erfan, S.~Park, A.~A.~U.~Rahman, and M.~R.~Rahman,
+``An evaluation of large language models for detection of malicious Python packages,'' arXiv:2602.16304, 2026.
 
 \bibitem{decan2018}
 A.~Decan, T.~Mens, and E.~Constantinou,
@@ -558,6 +520,10 @@ arXiv:2605.06279, 2026. % TBD: full author first names
 \bibitem{sonatype2026}
 Sonatype Inc., ``2026 state of the software supply chain report: AI agents,'' vendor report (not peer
 reviewed), 2026. [Online]. Available: \url{https://www.sonatype.com/state-of-the-software-supply-chain/2026/ai-agents}
+
+\bibitem{osv}
+Open Source Security Foundation, ``OSV: A distributed vulnerability database for open source,'' [Online].
+Available: \url{https://osv.dev}
 
 \bibitem{lewis2020}
 P.~Lewis \emph{et al.},

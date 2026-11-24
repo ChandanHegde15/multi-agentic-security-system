@@ -4,15 +4,30 @@ An evaluation study of how language models fix risky software dependencies. When
 
 ## How it works
 
-A five-agent pipeline turns a manifest into a report. Only Agent 4 can use a language model.
+A five-agent pipeline turns a manifest into a report. Only the Recommendation and Remediation Agent (Agent 4) can use a language model.
 
-| Agent | Role | Language model |
-|---|---|---|
-| 1 Extraction | Parses `requirements.txt`, `pyproject.toml`, `Pipfile`, `package.json`, code imports and install commands | no |
-| 2 Evidence | Looks up evidence records and recorded registry metadata for each dependency, filtered by a cut-off date | no |
-| 3 Findings | One finding per label family, version-aware, with evidence IDs | no |
-| 4 Recommendation | Rules (R0), or a model given only the finding names (LLM-U) or the evidence records too (LLM-G) | LLM-U, LLM-G |
-| 5 Verification | Ten deterministic checks: accept, reject or abstain. Shares no code or model with Agent 4 | no |
+```mermaid
+flowchart LR
+    M["Input"] --> A1
+    subgraph G["LangGraph state graph"]
+        A1["Agent 1<br/>Dependency Extraction"] --> A2["Agent 2<br/>Evidence Collection"]
+        A2 --> A3["Agent 3<br/>Risk Assessment"]
+        A3 --> A4["Agent 4<br/>Recommendation and Remediation"]
+        A4 --> A5["Agent 5<br/>Verification"]
+    end
+    A5 --> R["Report"]
+    LM["Language model<br/>local, no tools"] --> A4
+    D[("Recorded data<br/>evidence store and registry recordings")] -.-> A2
+    D -.-> A5
+```
+
+| Agent | Role | Language model | Code |
+|---|---|---|---|
+| 1 Dependency Extraction | Parses `requirements.txt`, `pyproject.toml`, `Pipfile`, `package.json`, code imports and install commands | no | `agent1_ingestion` |
+| 2 Evidence Collection | Checks each package against recorded PyPI and npm metadata and looks up its evidence records, filtered by a cut-off date | no | `agent2_registry` |
+| 3 Risk Assessment | One finding per label family, version-aware, with evidence IDs | no | `agent3_risk` |
+| 4 Recommendation and Remediation | Rules (R0), or a model given only the finding names (LLM-U) or the evidence records too (LLM-G) | LLM-U, LLM-G | `agent4_recommendation` |
+| 5 Verification | Ten deterministic checks: accept, reject or abstain. Shares no code or model with Agent 4 | no | `agent5_verification` |
 
 Every decision carries its reasons. Failures are explicit states, never defaults. Uploaded files are never installed, imported or executed.
 

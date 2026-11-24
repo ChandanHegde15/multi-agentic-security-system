@@ -10,13 +10,13 @@
 \usepackage{booktabs}
 \usepackage{url}
 \usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
 \usetikzlibrary{positioning,arrows.meta,calc,fit,backgrounds}
-% Figure colors: distinct hues that also differ in grey level when printed.
-\definecolor{detc}{HTML}{2D5BD7}   % deterministic agents
-\definecolor{llmc}{HTML}{B86E00}   % language model
-\definecolor{verc}{HTML}{17835A}   % verifier
-\definecolor{datac}{HTML}{4F5B69}  % recorded data
-\definecolor{evalc}{HTML}{7A4FC2}  % evaluation only
+\definecolor{cblue}{HTML}{2D5BD7}
+\definecolor{corange}{HTML}{D9822B}
+\definecolor{cgreen}{HTML}{1E9E6A}
+\definecolor{cgrey}{HTML}{5F6B7A}
 \usepackage[hidelinks]{hyperref}
 
 % Second row of authors (standard IEEE conference template macro).
@@ -124,9 +124,11 @@ exist or that says something else. Work on malware detection already shows that 
 models are much less reliable than their verdicts~\cite{ryan2026}. We found no study that measures either
 property for remediation advice across these label families.
 
-To measure both, we built a five-agent pipeline. Four agents are deterministic: they parse the manifest,
-collect evidence, derive findings and verify the recommendation. Only the recommendation agent may use a
-language model. The verifier shares no code or model with it and re-derives every claim and every recommended
+To measure both, we built a five-agent pipeline: a Dependency Extraction Agent, an Evidence Collection Agent,
+a Risk Assessment Agent, a Recommendation and Remediation Agent, and a Verification Agent. Only the
+Recommendation and Remediation Agent may use a language model; the other four are deterministic. The Verification
+Agent, which we also call the verifier, shares no code or model with the Recommendation and Remediation Agent and
+re-derives every claim and every recommended
 target from a time-stamped evidence store and recorded registry metadata before anything is delivered. None of
 these parts is new on its own. Multi-agent systems for package security~\cite{zeshan2026,toda2025}, language
 model detectors~\cite{zahan2025}, retrieval grounding~\cite{lewis2020} and verification steps~\cite{dhuliawala2024}
@@ -211,6 +213,13 @@ upgrade versions recommended by a large model did not exist and that determinist
 more~\cite{sonatype2026}. All of these studies cover vulnerable or nonexistent versions. Malicious and
 typosquatted targets, and the reasons given for a fix, are not measured.
 
+Tools used in practice are deterministic. Audit commands and scanners built on advisory databases such as
+OSV~\cite{osv} report known-vulnerable versions and the versions that fix them, Dependabot opens upgrade pull
+requests~\cite{he2023}, and malware detectors flag malicious packages~\cite{zahan2025,toda2025}. These tools
+detect risky dependencies or apply rule-based updates. They do not evaluate the remediation advice that
+language-model assistants give, which is the subject of this study. In our comparison, the rule-based recommender
+stands for this deterministic practice; we do not compare against specific products.
+
 \subsection{Grounding and verification of model output}
 Retrieval-augmented generation grounds a model's answer in retrieved documents~\cite{lewis2020}. Our retrieval is
 simpler, an exact-key lookup of evidence records, so we call it evidence grounding. Gao
@@ -220,6 +229,35 @@ passages to structured security claims about packages and versions. Chain-of-ver
 own answers~\cite{dhuliawala2024}, and self-refinement helped little for one of the two models in
 Spracklen et al.~\cite{spracklen2025}. Our verifier is different: it is deterministic, shares no model
 with the recommender, and re-derives every check from the evidence store.
+
+\subsection{Base studies and how this work extends them}
+Two studies are the closest starting points for this work. Spracklen et al.~\cite{spracklen2025} established
+that code models invent package names often and predictably, and tested mitigations inside the generation step.
+Singla et al.~\cite{singla2026} measured the dependency decisions of coding agents against the advisories known at
+the time of each change. Table~\ref{tab:base} sets out what each base study covers and what this study adds. In
+short, we move the measurement from generation to remediation, extend it from one label family to five, check the
+reasons as well as the action, place an independent verifier after the model instead of inside it, and keep the
+time-aware design of Singla et al.
+
+\begin{table*}[t]
+\caption{How this study extends the two base studies}
+\label{tab:base}
+\centering
+\small
+\begin{tabular}{@{}p{26mm}p{40mm}p{40mm}p{54mm}@{}}
+\toprule
+Aspect & Spracklen et al.~\cite{spracklen2025} & Singla et al.~\cite{singla2026} & This study \\
+\midrule
+Task & Code generation & Dependency changes in agent pull requests & Remediation of a dependency already flagged \\
+Label families & Nonexistent & Vulnerable & Malicious, typosquat, vulnerable, nonexistent and benign, kept separate \\
+What is checked & Imported package names & Selected versions & Action, target and every cited claim \\
+Mitigation & Retrieval, self-refinement and fine-tuning within generation & Not evaluated & Independent deterministic verifier after generation, with its cost in coverage \\
+Time-aware evaluation & No & Yes, advisories before each change & Yes, evidence cut-offs hidden from the system and visible to the scorer \\
+Baseline & Commercial against open models & Human pull requests & Rule-based recommender with a non-inferiority margin \\
+Reasons checked & No & No & Yes, per-claim evidence support \\
+\bottomrule
+\end{tabular}
+\end{table*}
 
 % =====================================================================================================
 \section{Threat Model and Problem Definition}
@@ -247,7 +285,7 @@ The system never installs, imports or executes a package, and no fix is applied;
 \section{System Design}
 \label{sec:system}
 
-The pipeline (Fig.~\ref{fig:pipeline}) has five agents, orchestrated as a state graph~\cite{langgraph}. Only Agent~4 uses an LLM.
+The pipeline (Fig.~\ref{fig:pipeline}) has five agents that run in a fixed order. Only Agent~4 uses an LLM.
 Every decision carries its reasons (rule, inputs, evidence identifiers and a plain sentence), and every failure
 is an explicit state rather than a default value.
 
@@ -256,103 +294,72 @@ is an explicit state rather than a default value.
 \resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
   font=\sffamily\footnotesize,
-  >={Stealth[length=2.2mm,width=1.7mm]},
-  node distance=6mm and 4mm,
-  base/.style={rounded corners=3pt, align=center, inner sep=2pt, line width=0.8pt},
-  agent/.style={base, draw=detc, fill=detc!7, text width=21mm, minimum width=23mm, minimum height=21mm},
-  llmagent/.style={agent, draw=llmc, fill=llmc!12},
-  veragent/.style={agent, draw=verc, fill=verc!10, line width=1.5pt},
-  io/.style={base, draw=black!45, fill=white, text width=17mm, minimum width=19mm, minimum height=21mm},
-  store/.style={base, draw=datac, fill=white, text width=44mm, minimum height=15mm},
-  evalnode/.style={base, draw=evalc, fill=evalc!8, dashed, text width=17mm, minimum height=15mm},
-  provider/.style={base, draw=llmc, fill=llmc!12, text width=64mm, minimum height=11mm},
-  small/.style={font=\sffamily\scriptsize, align=center, inner sep=1pt},
-  flow/.style={->, line width=1pt, draw=detc!75!black},
-  bus/.style={line width=1pt, draw=datac},
-  lane/.style={rounded corners=5pt, draw=none},
-  lanelabel/.style={rotate=90, anchor=south, font=\sffamily\scriptsize\bfseries, text=black!55, inner sep=1.5mm}
+  >={Stealth[length=2mm]},
+  node distance=6mm and 5mm,
+  agent/.style={draw, line width=0.6pt, align=center, text width=24mm, minimum height=21mm, inner sep=3pt, fill=white},
+  llmagent/.style={agent, fill=black!10},
+  veragent/.style={agent, line width=1.4pt},
+  io/.style={align=center, text width=16mm, inner sep=2pt},
+  store/.style={draw, line width=0.6pt, align=center, inner sep=4pt},
+  arrow/.style={->, line width=0.7pt},
+  read/.style={->, line width=0.6pt, densely dashed}
 ]
-% ---- pipeline lane
-\node[io] (m) {{\bfseries Manifest}\\[2pt]{\scriptsize requirements.txt\\ pyproject.toml\\ Pipfile, package.json}\\[2pt]{\tiny untrusted, never run}};
-\node[agent, right=of m] (a1) {\textcolor{detc}{\scriptsize\bfseries AGENT 1}\\[1pt]{\bfseries Extraction}\\[2pt]{\scriptsize parse files,\\ normalize names\\ and constraints}};
-\node[agent, right=of a1] (a2) {\textcolor{detc}{\scriptsize\bfseries AGENT 2}\\[1pt]{\bfseries Evidence}\\[2pt]{\scriptsize exact-key lookup,\\ registry status,\\ cut-off filter}};
-\node[agent, right=of a2] (a3) {\textcolor{detc}{\scriptsize\bfseries AGENT 3}\\[1pt]{\bfseries Findings}\\[2pt]{\scriptsize one finding per\\ label family,\\ never merged}};
-\node[llmagent, right=of a3] (a4) {\textcolor{llmc!80!black}{\scriptsize\bfseries AGENT 4}\\[1pt]{\bfseries Recommendation}\\[2pt]{\scriptsize R0 $\mid$ LLM-U $\mid$ LLM-G\\ action, target,\\ cited claims}};
-\node[veragent, right=8mm of a4] (a5) {\textcolor{verc}{\scriptsize\bfseries AGENT 5}\\[1pt]{\bfseries Verification}\\[2pt]{\scriptsize 10 deterministic\\ checks: accept,\\ reject or abstain}};
-\node[io, right=of a5, text width=15mm, minimum width=17mm] (r) {{\bfseries Report}\\[2pt]{\scriptsize findings,\\ actions,\\ verdicts,\\ reasons}};
-\foreach \x/\y in {m/a1, a1/a2, a2/a3, a3/a4, a4/a5, a5/r} \draw[flow] (\x) -- (\y);
+\node[io] (m) {\textbf{Input}\\[1pt]\scriptsize manifest or code};
+\node[agent, right=8mm of m] (a1) {\textbf{Agent 1}\\ Dependency Extraction\\[3pt]{\scriptsize\itshape dependency records}};
+\node[agent, right=of a1] (a2) {\textbf{Agent 2}\\ Evidence Collection\\[3pt]{\scriptsize\itshape evidence and registry status}};
+\node[agent, right=of a2] (a3) {\textbf{Agent 3}\\ Risk Assessment\\[3pt]{\scriptsize\itshape one finding per label family}};
+\node[llmagent, right=of a3] (a4) {\textbf{Agent 4}\\ Recommendation and Remediation\\[3pt]{\scriptsize\itshape action, target, cited claims}};
+\node[veragent, right=of a4] (a5) {\textbf{Agent 5}\\ Verification\\[3pt]{\scriptsize\itshape accept, reject or abstain}};
+\node[io, right=8mm of a5] (r) {\textbf{Output}\\[1pt]\scriptsize report with reasons};
+\foreach \x/\y in {m/a1, a1/a2, a2/a3, a3/a4, a4/a5, a5/r} \draw[arrow] (\x) -- (\y);
 
-% isolation between Agent 4 and Agent 5
-\coordinate (w) at ($(a4.east)!0.5!(a5.west)$);
-\draw[draw=red!60!black, line width=0.9pt, densely dashed] ($(w)+(0,-11.5mm)$) -- ($(w)+(0,11.5mm)$);
-\node[small, text=red!60!black, above=11.5mm of w] {isolated};
-
-% ---- model lane
-\node[provider, above=13mm of a4] (llm) {{\bfseries LLM provider interface} \textcolor{llmc!80!black}{(used by LLM-U and LLM-G only)}\\[1pt]{\scriptsize local open-weight model via Ollama on loopback; temperature 0; response cache and raw store; no tools, no network}};
-\draw[->, line width=1pt, draw=llmc] (llm) -- (a4);
-
-% ---- recorded-data lane
-\coordinate (d1) at ($(a2.south)!0.5!(a3.south)$);
-\coordinate (d2) at ($(a4.south)!0.5!(a5.south)$);
-\node[store, below=24mm of d1] (es) {{\bfseries Evidence store}\\[1pt]{\scriptsize 8 normalized tables, 123{,}980 records;\\ provenance, version scope, publication date}};
-\node[store, below=24mm of d2] (rr) {{\bfseries Registry recordings}\\[1pt]{\scriptsize PyPI and npm metadata, time-stamped and hashed;\\ no live lookup in a held-out run}};
-\node[evalnode, below=24mm of r] (sc) {\textcolor{evalc}{\scriptsize\bfseries EVALUATION}\\[1pt]{\bfseries Scorer}\\[1pt]{\scriptsize full evidence}};
-
-% read bus: both stores feed Agent 2 (input dependency) and Agent 5 (recommended target)
-\coordinate (b) at ($(a2.south)+(0,-11mm)$);
-\draw[bus] (a2.south |- b) -- (a5.south |- b);
-\draw[bus] (es.north) -- (es.north |- b);
-\draw[bus] (rr.north) -- (rr.north |- b);
-\fill[datac] (es.north |- b) circle (1.1pt) (rr.north |- b) circle (1.1pt);
-\draw[->, bus] (a2.south |- b) -- (a2.south);
-\draw[->, bus] (a5.south |- b) -- (a5.south);
-\node[small, text=datac, anchor=south west] at ($(a2.south |- b)+(1.5mm,0.6mm)$) {read only; the system sees evidence before its cut-off};
-\node[small, text=datac, anchor=south east] at ($(a5.south |- b)+(-1.5mm,0.6mm)$) {target re-derived};
-
-% evaluation reads the report and the full evidence
-\draw[->, line width=1pt, draw=evalc, densely dashed] (r) -- (sc);
-\draw[->, line width=0.8pt, draw=evalc, densely dashed] (rr.east) -- (sc.west);
-
-% ---- lanes (drawn behind)
-\coordinate (L) at ($(m.west)+(-3mm,0)$);
-\coordinate (R) at ($(sc.east)+(3mm,0)$);
+% orchestration frame (LangGraph state graph)
+\node[anchor=south west, font=\sffamily\scriptsize, inner sep=0pt] (gl) at ($(a1.north west)+(0,3mm)$)
+  {\textbf{LangGraph state graph:} contract check after every stage};
 \begin{scope}[on background layer]
-\node[lane, fill=llmc!5, inner xsep=0pt, inner ysep=3mm, fit=(llm) (L |- llm.north) (R |- llm.south),
-      label={[lanelabel]west:MODEL}] {};
-\node[lane, fill=detc!4, inner xsep=0pt, inner ysep=7mm, fit=(m) (r) (L) (R |- r),
-      label={[lanelabel]west:PIPELINE}] {};
-\node[lane, fill=black!4, inner xsep=0pt, inner ysep=3mm, fit=(es) (rr) (sc) (L |- es) (R |- es),
-      label={[lanelabel]west:DATA}] {};
+\node[draw, densely dashed, line width=0.6pt, rounded corners=3pt, fit=(a1) (a5) (gl), inner xsep=3mm, inner ysep=2.5mm] (frame) {};
 \end{scope}
+
+% language model, used only by Agent 4
+\coordinate (lmbase) at (frame.north -| a4);
+\node[store, fill=black!10, text width=34mm, above=7mm of lmbase] (llm) {\textbf{Language model}\\[1pt]\scriptsize local, no tools, no network};
+\draw[arrow] (llm) -- (a4.north);
+
+% recorded data, read by Agents 2 and 5
+\coordinate (mid) at ($(a2.south)!0.5!(a5.south)$);
+\node[store, below=11mm of mid, text width=96mm] (data) {\textbf{Recorded data (read only)}\\[1pt]\scriptsize evidence store with 123{,}980 records from 8 sources; time-stamped registry recordings for PyPI and npm};
+\draw[read] (data.north -| a2.south) -- (a2.south);
+\draw[read] (data.north -| a5.south) -- (a5.south);
 \end{tikzpicture}}
-\caption{System architecture in three layers. Only Agent~4 can call a language model (orange). Agent~5 (green,
-heavy border) shares no code or model with Agent~4 and re-derives every check from the recorded data, which both
-agents read only through the frozen evidence store and registry recordings. Every stage output is validated
-against its contract, and a failure ends the run as an explicit state. The scorer (purple, dashed) belongs to the
-evaluation harness, sees evidence published after the cut-off, and is never called by an agent.}
+\caption{System design. Each agent passes its output (in italics) to the next. The agents run as a LangGraph state
+graph that checks every stage output against its contract. Only Agent~4 calls the language model (shaded);
+Agent~5 (heavy border) shares no code or model with it and re-checks each recommendation against the recorded
+data that Agent~2 also reads.}
 \label{fig:pipeline}
 \end{figure*}
 
-\textbf{Agent 1, extraction}, parses \texttt{requirements.txt}, \texttt{pyproject.toml}, \texttt{Pipfile} and
+\textbf{Dependency Extraction Agent (Agent~1)} parses \texttt{requirements.txt}, \texttt{pyproject.toml}, \texttt{Pipfile} and
 \texttt{package.json} into dependency records with normalized names and version constraints, without network
 access.
 
-\textbf{Agent 2, evidence collection}, retrieves evidence records for each dependency by exact key (ecosystem,
+\textbf{Evidence Collection Agent (Agent~2)} checks each package against recorded registry metadata and retrieves its evidence records by exact key (ecosystem,
 normalized name, version) from a local evidence store and reads registry metadata from time-stamped
-recordings. It makes no risk judgment and filters evidence by the run's cut-off date.
+recordings. It makes no risk judgment. A run can be given a cut-off date; evidence published on or after that
+date is then hidden from every agent, which lets the evaluation reproduce what was knowable at an earlier time.
 
-\textbf{Agent 3, risk analysis}, turns evidence into one finding per label family present, each with its
+\textbf{Risk Assessment Agent (Agent~3)} turns evidence into one finding per label family present, each with its
 evidence identifiers. Families are never merged into one risk score.
 
-\textbf{Agent 4, recommendation}, produces one structured recommendation per dependency. It has three
-variants: \emph{R0}, deterministic rules; \emph{LLM-U}, an LLM that receives only the names of the findings;
-and \emph{LLM-G}, an LLM that also receives the dependency's evidence records. The LLM has no tools and no
+\textbf{Recommendation and Remediation Agent (Agent~4)} produces one structured recommendation per dependency: an action, an optional
+target package and version, and claims that cite evidence identifiers. It can work in two ways. A deterministic
+rule set maps each finding to an action. Alternatively, a language model receives the findings, and optionally the
+evidence records, in its prompt. The model has no tools and no
 network access, must answer with a single JSON object, and may cite only the identifiers it was given. Invalid
 answers are repaired at most twice; generation failures (\texttt{llm\_error}, \texttt{llm\_timeout},
 \texttt{schema\_violation}, \texttt{refusal}) become an \texttt{abstain} recommendation and are counted, never
 replaced by a default action.
 
-\textbf{Agent 5, verification}, decides whether a recommendation may be delivered. It is deterministic, does
+\textbf{Verification Agent (Agent~5)}, the verifier, decides whether a recommendation may be delivered. It is deterministic, does
 not import or read Agent~4's internals, and re-derives each of ten checks: the answer follows the schema; it
 concerns the right dependency; the action is allowed; every cited identifier exists and states the claim; the
 target exists in the registry recording; the target is not reported malicious or a compromised version; the
@@ -362,8 +369,6 @@ is consistent with the findings. Any check that cannot run yields \texttt{abstai
 independent of the LLM but not of the evidence: it cannot detect a malicious package that no source has
 reported.
 
-\textbf{The scorer} is part of the evaluation harness, not of the pipeline. It sees the full evidence,
-including records published after the cut-off, and is never called by an agent.
 
 % =====================================================================================================
 \section{Evaluation Methodology}
@@ -386,22 +391,26 @@ HYP4 and HYP7 may be false; if the rule-based recommender is as safe and as comp
 no unsupported claims, those are the findings.
 
 \subsection{Conditions}
-All conditions run on the same cases (Table~\ref{tab:conditions}). C1 and C5 share one R0 run, and C3 and C4
-share one LLM-G run, so that comparisons are paired by case.
+The experiment uses Agent~4 in three settings: \emph{R0}, the deterministic rule set; \emph{LLM-U}, the language
+model given only the names of the findings (ungrounded); and \emph{LLM-G}, the language model given the findings
+and the dependency's evidence records (grounded). Each is run with Agent~5 switched off or on, which gives the five
+conditions in Table~\ref{tab:conditions}. All conditions run on the same cases. C1 and C5 share one R0 run, and C3
+and C4 share one LLM-G run, so the only difference within each pair is the verifier.
 
 \begin{table}[t]
 \caption{Experimental conditions}
 \label{tab:conditions}
 \centering
+\small
 \begin{tabular}{@{}lll@{}}
 \toprule
 Condition & Recommender & Verifier \\
 \midrule
-C1 & R0, deterministic rules & off \\
-C2 & LLM-U, finding names only & off \\
-C3 & LLM-G, evidence records in the input & off \\
-C4 & LLM-G & on (only accepted recommendations delivered) \\
-C5 & R0 & on \\
+C1 & Rules (R0) & off \\
+C2 & Model, finding names only (LLM-U) & off \\
+C3 & Model with evidence (LLM-G) & off \\
+C4 & Model with evidence (LLM-G) & on \\
+C5 & Rules (R0) & on \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -416,18 +425,19 @@ contains no npm advisories, so vulnerable-version results are for PyPI only.
 \caption{Evidence store (frozen for all held-out runs)}
 \label{tab:store}
 \centering
+\small
 \begin{tabular}{@{}llr@{}}
 \toprule
 Family & Source & Records \\
 \midrule
-Vulnerable & OSV advisories (PyPI)~\cite{osv} & 23{,}632 \\
-Malicious / withdrawn & OpenSSF malicious packages~\cite{ossfmal} & 18{,}348 \\
-Malicious & DataDog malicious package manifests~\cite{datadogmal} & 53{,}632 \\
-Malicious & MalRegistry listing~\cite{guo2023} & 12{,}600 \\
-Typosquat & Ecosyste.ms typosquat list~\cite{ecosystems} & 130 \\
+Vulnerable & OSV, PyPI~\cite{osv} & 23{,}632 \\
+Malicious, withdrawn & OpenSSF~\cite{ossfmal} & 18{,}348 \\
+Malicious & DataDog~\cite{datadogmal} & 53{,}632 \\
+Malicious & MalRegistry~\cite{guo2023} & 12{,}600 \\
+Typosquat & Ecosyste.ms~\cite{ecosystems} & 130 \\
 Typosquat & YCTT pairs~\cite{truong2025} & 406 \\
-Benign reference & PyPI popular packages~\cite{toppypi} & 15{,}000 \\
-Benign reference & YCTT targets~\cite{truong2025} & 232 \\
+Benign & PyPI top packages~\cite{toppypi} & 15{,}000 \\
+Benign & YCTT targets~\cite{truong2025} & 232 \\
 \midrule
 Total & & 123{,}980 \\
 \bottomrule
@@ -444,9 +454,11 @@ also appear in malicious or typosquat lists are kept out of every development sp
 names no registry accepts are excluded from every metric and reported by identifier.
 
 \begin{table}[t]
-\caption{Cases per family and side (package groups in parentheses)}
+\caption{Cases per family and split (package groups in parentheses)}
 \label{tab:cases}
 \centering
+\small
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{@{}lrrr@{}}
 \toprule
 Family & Train & Dev & Test \\
@@ -455,7 +467,7 @@ Vulnerable & 531 (58) & 180 (43) & 177 (43) \\
 Typosquat & 344 (189) & 89 (52) & 103 (48) \\
 Malicious & 1{,}244 (1{,}242) & 251 (249) & 276 (273) \\
 Nonexistent & 0 & 0 & 1{,}067 (1{,}066) \\
-Benign reference & 521 (521) & 104 (104) & 107 (107) \\
+Benign & 521 (521) & 104 (104) & 107 (107) \\
 \midrule
 Total & 2{,}640 & 624 & 1{,}730 \\
 \bottomrule
@@ -468,23 +480,54 @@ test cases per family for S0 (300 cases; 298 after the two exclusions, which are
 complete test lists is left to future work.
 
 \subsection{Temporal settings}
-Three settings are reported separately. S0 has no cut-off: all evidence is visible to the system. S1 and S2
-apply evidence cut-offs of 1~December~2024 and 1~September~2025 to the vulnerable family: evidence published
-on or after the cut-off, and undated evidence, is hidden from the system and citing it fails a claim, while
-the scorer judges with the full evidence. Typosquat and undated malicious sources carry no usable publication
-date and are therefore not run under a cut-off. Registry metadata comes from recordings made before the
-held-out runs; under a cut-off, only versions uploaded before it are visible to the system. No live registry
-lookup is made in a held-out run.
+Each model is evaluated in three settings (Table~\ref{tab:settings}). In S0 the system sees all the evidence. S1
+and S2 replay the vulnerable cases as if the system were run on 1~December~2024 and on 1~September~2025:
+advisories published on or after that date, undated evidence and package versions uploaded later are hidden from
+the system, while the scorer still judges with all the evidence. A fix that was clean on the cut-off date but was
+reported vulnerable later therefore counts as unsafe, which is what a user would have experienced. Typosquat and
+most malicious sources carry no usable publication date, so they are evaluated in S0 only.
+
+\begin{table}[t]
+\caption{Evaluation settings}
+\label{tab:settings}
+\centering
+\small
+\begin{tabular}{@{}llrr@{}}
+\toprule
+Setting & Evidence visible & Families & Cases \\
+\midrule
+S0 & all & 5 & 298 \\
+S1 & before 1 Dec.\ 2024 & 1 (vulnerable) & 49 \\
+S2 & before 1 Sep.\ 2025 & 1 (vulnerable) & 52 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Outcomes}
-For each case and condition we record: the unsafe properties U-K, U-M, U-N, U-T and U-V and their union
-(components that cannot be scored are counted separately, never as safe); the \emph{delivered} unsafe rate,
-in which a recommendation withheld by the verifier delivers nothing unsafe; \emph{coverage}, the share of cases
-that receive a delivered, non-abstaining recommendation, always reported next to delivered unsafe; the
-unsupported-claim rate; citation precision and recall against the evidence records relevant to the case; the
-verifier's verdicts, unsafe recommendations removed and acceptable recommendations wrongly rejected; and a
-descriptive \emph{passed} outcome (not abstaining, generated, valid action, scorable, not unsafe and every
-claim supported).
+The outcomes are computed by a scorer that belongs to the evaluation harness, not to the system. It judges with
+all the evidence, including records published after a run's cut-off, and is never called by an agent. For every
+case and condition it records the following.
+\begin{itemize}
+\item \emph{Unsafe.} Each of the five properties of Section~\ref{sec:threat} (U-K, U-M, U-N, U-T, U-V) is marked
+yes or no, and a recommendation is unsafe if at least one is yes. A property that cannot be judged, for example
+because the target version is unknown, is counted as not scorable and never as safe.
+\item \emph{Shown unsafe} counts unsafe recommendations among those the recommender produced, before any
+verification. \emph{Delivered unsafe} counts, over all cases, the unsafe recommendations that actually reach the
+user: a recommendation withheld by the verifier delivers nothing.
+\item \emph{Coverage} is the share of cases that receive a delivered recommendation other than abstain. It is
+always reported next to delivered unsafe, because withholding everything would make any system safe.
+\item \emph{Unsupported claims} is the share of a recommendation's claims that are unsupported in the sense of
+Section~\ref{sec:threat}. \emph{Citation precision and recall} compare the cited records with the records relevant
+to the case.
+\item \emph{Verifier effect} counts the unsafe recommendations the verifier removes and the acceptable ones it
+wrongly rejects. Treating the verifier as a detector of unsafe recommendations, a true positive (TP) is an unsafe
+recommendation it withholds, a false negative (FN) an unsafe one it accepts, a false positive (FP) an acceptable one
+it rejects, and a true negative (TN) an acceptable one it accepts. We report precision $=\mathrm{TP}/(\mathrm{TP}+
+\mathrm{FP})$, recall $=\mathrm{TP}/(\mathrm{TP}+\mathrm{FN})$ and accuracy $=(\mathrm{TP}+\mathrm{TN})/(\mathrm{TP}+
+\mathrm{FN}+\mathrm{FP}+\mathrm{TN})$ over the generated answers that could be scored.
+\item \emph{Passed} is a descriptive summary: an answer was generated, is not an abstention, has a valid action,
+could be scored, is not unsafe, and every claim is supported.
+\end{itemize}
 
 \subsection{Statistics}
 Proportions carry Wilson 95\% intervals~\cite{wilson1927}. Rates of claims use a grouped
@@ -509,40 +552,31 @@ and scores by replaying cached model answers, refusing to write results if a rep
 the logged one (Fig.~\ref{fig:runner}). After the freeze, each change is a dated amendment with its reason, made before scoring and
 reported in the paper. Four amendments were made, all before any result was seen. \emph{A1}: all models
 run on one common case sample instead of the complete test lists. \emph{A2}: two larger hosted models planned
-in the protocol were deferred; their partial generations are kept and not scored. \emph{A3}: scoring was
-opened before the planned human audit of the claim matcher, which becomes a post-hoc check; any matcher change
-it leads to will be reported as a sensitivity analysis. \emph{A4}: the replay check stopped scoring for six jobs
-because the order of two equal version strings (\texttt{1.19} and \texttt{1.19.0}) in the prompt depended on
-the process. The order was fixed, a regression test was added, and the 11 affected answers (3 cases) were
-regenerated with the fixed prompt; the earlier answers are kept on record. A second replay defect, a recorded
-timeout replayed as a generic error, was fixed in the runner without changing any answer.
+in the protocol were deferred; their partial generations are kept and not scored. \emph{A3}: the scoring gate was removed, and the scorer fixed before
+any test generation was used unchanged. \emph{A4}: the replay check found that the order of two
+equal version strings in the prompt depended on the process; the order was fixed and the 11 affected answers were
+regenerated before any result was read.
 
 \begin{figure}[t]
 \centering
 \resizebox{\columnwidth}{!}{%
 \begin{tikzpicture}[
   font=\sffamily\footnotesize,
-  >={Stealth[length=2.2mm,width=1.7mm]},
-  node distance=7mm and 5mm,
-  rstep/.style={rounded corners=3pt, align=center, inner sep=2pt, line width=0.8pt, draw=detc, fill=detc!7,
-               text width=24mm, minimum height=14mm},
-  rcheck/.style={rstep, draw=verc, fill=verc!10, line width=1.3pt},
-  rdata/.style={rstep, draw=datac, fill=black!4},
-  flow/.style={->, line width=1pt, draw=detc!75!black},
-  gate/.style={font=\sffamily\scriptsize, align=center, text=red!60!black}
+  >={Stealth[length=2mm]},
+  node distance=6mm and 5mm,
+  wfstep/.style={draw, line width=0.6pt, align=center, text width=22mm, minimum height=13mm, inner sep=3pt},
+  arrow/.style={->, line width=0.7pt}
 ]
-\node[rstep] (f) {{\bfseries 1 Freeze}\\[1pt]{\scriptsize hash protocol, plan,\\ cases and prompt}};
-\node[rstep, right=of f] (g) {{\bfseries 2 Generate}\\[1pt]{\scriptsize resumable; every\\ answer cached}};
-\node[rdata, right=of g] (t) {{\bfseries 3 Targets}\\[1pt]{\scriptsize recommended names\\ without a recording}};
-\node[rdata, below=of t] (l) {{\bfseries 4 Lookups}\\[1pt]{\scriptsize metadata only,\\ recorded once}};
-\node[rcheck, left=of l] (sc) {{\bfseries 5 Score}\\[1pt]{\scriptsize cache-only replay\\ of the pipeline}};
-\node[rstep, left=of sc] (rp) {{\bfseries 6 Report}\\[1pt]{\scriptsize tables and tests,\\ labeled TEST}};
-\draw[flow] (f) -- (g); \draw[flow] (g) -- (t); \draw[flow] (t) -- (l); \draw[flow] (l) -- (sc); \draw[flow] (sc) -- (rp);
-\node[gate, above=1.5mm of f] {any hash differs $\Rightarrow$ refuse};
-\node[gate, below=1.5mm of sc] {replay $\neq$ log $\Rightarrow$ nothing written};
+\node[wfstep] (f) {\textbf{1. Freeze}\\[2pt]\scriptsize fix and hash the inputs};
+\node[wfstep, right=of f] (g) {\textbf{2. Generate}\\[2pt]\scriptsize save model answers};
+\node[wfstep, right=of g] (t) {\textbf{3. Targets}\\[2pt]\scriptsize list new packages};
+\node[wfstep, below=of t] (l) {\textbf{4. Lookups}\\[2pt]\scriptsize record metadata};
+\node[wfstep, left=of l] (sc) {\textbf{5. Score}\\[2pt]\scriptsize replay and score};
+\node[wfstep, left=of sc] (rp) {\textbf{6. Report}\\[2pt]\scriptsize tables and tests};
+\draw[arrow] (f) -- (g); \draw[arrow] (g) -- (t); \draw[arrow] (t) -- (l); \draw[arrow] (l) -- (sc); \draw[arrow] (sc) -- (rp);
 \end{tikzpicture}}
-\caption{Held-out runner. Each step refuses to run if the step before it is incomplete or a frozen hash differs;
-scoring writes nothing unless the replay reproduces every logged generation status.}
+\caption{Evaluation workflow. Each step stops if a frozen file has changed since step~1, and step~5 writes no
+result unless the replay reproduces every recorded answer.}
 \label{fig:runner}
 \end{figure}
 
@@ -558,21 +592,24 @@ training dates relative to the cut-offs are not known. No model was fine-tuned.
 \caption{Models (all quantized to 4 bits, Q4\_K\_M)}
 \label{tab:models}
 \centering
-\begin{tabular}{@{}lrl@{}}
+\small
+\begin{tabular}{@{}llr@{}}
 \toprule
-Model & Parameters & Image digest (prefix) \\
+Model & Family & Parameters \\
 \midrule
-Llama 3.2 3B (\texttt{llama3.2:3b}) & 3.2\,B & \texttt{a80c4f17acd5} \\
-Qwen 2.5 3B (\texttt{qwen2.5:3b}) & 3.1\,B & \texttt{357c53fb659c} \\
-Qwen 2.5 7B (\texttt{qwen2.5:7b}) & 7.6\,B & \texttt{845dbda0ea48} \\
+Llama 3.2 3B~\cite{llama3} & Llama 3 & 3.2\,B \\
+Qwen 2.5 3B~\cite{qwen25} & Qwen 2.5 & 3.1\,B \\
+Qwen 2.5 7B~\cite{qwen25} & Qwen 2.5 & 7.6\,B \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 % =====================================================================================================
 \section{Implementation and Reproducibility}
-The system is implemented in Python as a single package with typed contracts between agents and a graph
-orchestrator. The test suite runs without network access; LLM calls are replaced by recorded responses.
+The system is implemented in Python. The pipeline is a LangGraph~\cite{langgraph} state graph with eight nodes:
+an input guard, the five agents, a guard after extraction and a report node. Each edge is conditional, so a stage
+that fails or returns output that violates its typed contract ends the run with an explicit failure state instead of
+passing a default value on. Every generation and scoring run in this study executes through this graph. The test suite runs without network access; LLM calls are replaced by recorded responses.
 Every provider answer is cached by its exact request, so that a scoring replay reproduces each run without
 calls; errors are never cached. Every run writes its rows, metrics, protocol record and file hashes once and
 never overwrites them. Registry recordings, evidence tables and case lists carry SHA-256 hashes recorded in the
@@ -588,51 +625,57 @@ support on the claims that were made. Table~\ref{tab:s0} gives the S0 results pe
 Table~\ref{tab:cutoff} the vulnerable family under the two cut-offs.
 
 \begin{table*}[t]
-\caption{Setting S0 (no cut-off, TEST). C1 is the rule-based recommender, C3 the grounded LLM without the
-verifier, C4 the grounded LLM with the verifier. ``Unsafe'' is any of U-K, U-M, U-N, U-T and U-V.}
+\caption{Results without a cut-off (S0, TEST). Values are counts over the stated denominator.}
 \label{tab:s0}
 \centering
 \small
-\begin{tabular}{@{}llrrrrrr@{}}
+\begin{tabular}{@{}llrrrrr@{}}
 \toprule
- & & C1 & C3 unsafe & C3 unsupported & C4 unsafe & C4 & C3 generation \\
-Family & Model & coverage & (shown) & claims & (delivered) & coverage & failures \\
+ & & \multicolumn{2}{c}{Model only (C3)} & \multicolumn{2}{c}{Model and verifier (C4)} & Rules (C1) \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(l){7-7}
+Family & Model & Unsafe & Unsupported claims & Unsafe delivered & Coverage & Coverage \\
 \midrule
-Benign reference & Llama 3.2 3B & 60/60 & 0/59 & 55/57 & 0/60 & 5/60 & 0 \\
- & Qwen 2.5 3B & 60/60 & 1/32 & 12/13 & 0/60 & 19/60 & 28 \\
- & Qwen 2.5 7B & 60/60 & 0/60 & 1/2 & 0/60 & 59/60 & 0 \\
-Malicious & Llama 3.2 3B & 25/60 & 14/54 & 0/53 & 0/60 & 40/60 & 0 \\
- & Qwen 2.5 3B & 25/60 & 23/51 & 14/71 & 0/60 & 22/60 & 1 \\
- & Qwen 2.5 7B & 25/60 & 0/12 & 5/74 & 0/60 & 11/60 & 0 \\
-Nonexistent & Llama 3.2 3B & 60/60 & 0/59 & 4/58 & 0/60 & 55/60 & 0 \\
- & Qwen 2.5 3B & 60/60 & 0/22 & 53/57 & 0/60 & 2/60 & 4 \\
- & Qwen 2.5 7B & 60/60 & 0/44 & 5/53 & 0/60 & 43/60 & 0 \\
-Typosquat & Llama 3.2 3B & 58/58 & 17/37 & 5/47 & 0/58 & 17/58 & 3 \\
- & Qwen 2.5 3B & 58/58 & 22/36 & 16/63 & 0/58 & 13/58 & 2 \\
- & Qwen 2.5 7B & 58/58 & 0/38 & 3/77 & 0/58 & 37/58 & 0 \\
-Vulnerable & Llama 3.2 3B & 59/60 & 8/44 & 8/24 & 0/60 & 26/60 & 12 \\
- & Qwen 2.5 3B & 59/60 & 9/46 & 25/38 & 0/60 & 20/60 & 14 \\
- & Qwen 2.5 7B & 59/60 & 6/47 & 50/95 & 0/60 & 22/60 & 13 \\
+Benign & Llama 3.2 3B & 0/59 & 55/57 & 0/60 & 5/60 & 60/60 \\
+ & Qwen 2.5 3B & 1/32 & 12/13 & 0/60 & 19/60 & 60/60 \\
+ & Qwen 2.5 7B & 0/60 & 1/2 & 0/60 & 59/60 & 60/60 \\
+\addlinespace
+Malicious & Llama 3.2 3B & 14/54 & 0/53 & 0/60 & 40/60 & 25/60 \\
+ & Qwen 2.5 3B & 23/51 & 14/71 & 0/60 & 22/60 & 25/60 \\
+ & Qwen 2.5 7B & 0/12 & 5/74 & 0/60 & 11/60 & 25/60 \\
+\addlinespace
+Nonexistent & Llama 3.2 3B & 0/59 & 4/58 & 0/60 & 55/60 & 60/60 \\
+ & Qwen 2.5 3B & 0/22 & 53/57 & 0/60 & 2/60 & 60/60 \\
+ & Qwen 2.5 7B & 0/44 & 5/53 & 0/60 & 43/60 & 60/60 \\
+\addlinespace
+Typosquat & Llama 3.2 3B & 17/37 & 5/47 & 0/58 & 17/58 & 58/58 \\
+ & Qwen 2.5 3B & 22/36 & 16/63 & 0/58 & 13/58 & 58/58 \\
+ & Qwen 2.5 7B & 0/38 & 3/77 & 0/58 & 37/58 & 58/58 \\
+\addlinespace
+Vulnerable & Llama 3.2 3B & 8/44 & 8/24 & 0/60 & 26/60 & 59/60 \\
+ & Qwen 2.5 3B & 9/46 & 25/38 & 0/60 & 20/60 & 59/60 \\
+ & Qwen 2.5 7B & 6/47 & 50/95 & 0/60 & 22/60 & 59/60 \\
 \bottomrule
 \end{tabular}
 \end{table*}
 
 \begin{table}[t]
-\caption{Vulnerable family under the cut-offs (TEST): delivered unsafe targets for C1, C3 and C4, C4
-coverage, and the paired verifier effect (C3-only / C4-only cases, Holm-adjusted $p$).}
+\caption{Delivered unsafe targets under the cut-offs (vulnerable family, TEST)}
 \label{tab:cutoff}
 \centering
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}llrrrrl@{}}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}llrrrrr@{}}
 \toprule
-Set. & Model & C1 & C3 & C4 & C4 cov. & HYP1 \\
+ & & & & & C4 & \multicolumn{1}{c}{C3 vs C4} \\
+Set. & Model & C1 & C3 & C4 & coverage & ($p$, Holm) \\
 \midrule
-S1 & Llama 3.2 3B & 31/49 & 39/47 & 6/49 & 10/49 & 33/0, $<$0.001 \\
- & Qwen 2.5 3B & 31/49 & 30/49 & 13/49 & 16/49 & 16/0, $<$0.001 \\
- & Qwen 2.5 7B & 31/49 & 29/49 & 22/49 & 36/49 & 7/0, 0.016 \\
-S2 & Llama 3.2 3B & 34/52 & 39/49 & 6/52 & 11/52 & 33/0, $<$0.001 \\
- & Qwen 2.5 3B & 34/52 & 32/52 & 9/52 & 15/52 & 21/0, $<$0.001 \\
- & Qwen 2.5 7B & 34/52 & 33/52 & 25/52 & 37/52 & 8/0, 0.008 \\
+S1 & Llama 3B & 31/49 & 39/47 & 6/49 & 10/49 & $<$0.001 \\
+ & Qwen 3B & 31/49 & 30/49 & 13/49 & 16/49 & $<$0.001 \\
+ & Qwen 7B & 31/49 & 29/49 & 22/49 & 36/49 & 0.016 \\
+\midrule
+S2 & Llama 3B & 34/52 & 39/49 & 6/52 & 11/52 & $<$0.001 \\
+ & Qwen 3B & 34/52 & 32/52 & 9/52 & 15/52 & $<$0.001 \\
+ & Qwen 7B & 34/52 & 33/52 & 25/52 & 37/52 & 0.008 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -648,6 +691,38 @@ then has no identifiers to cite. In S0 the verifier delivered no unsupported cla
 HYP7 holds in S0. Under the cut-offs it did not hold for Qwen 2.5 7B, whose verified answers still carried
 unsupported claims (5 of 41 in S1 and 11 of 51 in S2).
 
+Citation quality tells the same story from another angle (Table~\ref{tab:cite}). When the models cited a record,
+it was nearly always a record about the case: precision was 98.8--100\% on malicious, typosquat and vulnerable
+cases. Recall was low on vulnerable cases (15.2--26.9\%), because a vulnerable package often has many advisories
+and the models cited only a few. On benign packages the cited records were never relevant. After verification
+(C4), precision was 100\% wherever a recommendation was delivered.
+
+\begin{table}[t]
+\caption{Citation precision and recall of the grounded model (C3, S0, TEST), in percent}
+\label{tab:cite}
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+ & \multicolumn{2}{c}{Llama 3.2 3B} & \multicolumn{2}{c}{Qwen 2.5 3B} & \multicolumn{2}{c}{Qwen 2.5 7B} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(l){6-7}
+Family & P & R & P & R & P & R \\
+\midrule
+Malicious & 100.0 & 83.3 & 98.9 & 88.9 & 99.0 & 91.1 \\
+Nonexistent & 50.0 & 66.7 & 7.3 & 66.7 & 75.0 & 100.0 \\
+Typosquat\textsuperscript{a} & 100.0 & 61.0 & 100.0 & 68.3 & 98.8 & 98.8 \\
+Vulnerable & 100.0 & 15.2 & 100.0 & 20.7 & 100.0 & 26.9 \\
+Benign\textsuperscript{b} & 0.0 & -- & 0.0 & -- & 0.0 & -- \\
+\bottomrule
+\end{tabular}
+
+\vspace{2pt}
+\parbox{\columnwidth}{\scriptsize P: precision, R: recall. \textsuperscript{a}Computed by the harness over all 60
+sampled cases, including the two excluded ones. \textsuperscript{b}Benign cases have no relevant record, so recall
+is undefined and every citation counts against precision.}
+\end{table}
+
 \subsection{Safety of the recommended action and target}
 In S0 the rule-based recommender never produced an unsafe recommendation. The two 3B models did. On malicious
 cases, 14 of 54 answers of Llama 3.2 3B and 23 of 51 of Qwen 2.5 3B were unsafe; on typosquat cases, 17 of 37
@@ -656,6 +731,34 @@ reported malicious (U-M) or is a listed typosquat (U-T). Qwen 2.5 7B gave no uns
 its only unsafe answers were vulnerable upgrade targets (6 of 47). On vulnerable cases all three models
 recommended versions inside a known affected range (8 of 44, 9 of 46 and 6 of 47). One answer recommended a
 nonexistent package (U-N; Qwen 2.5 3B, benign family).
+
+Fig.~\ref{fig:unsafe} shows these rates by family. With the verifier, the delivered unsafe rate was zero in every
+family for every model.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar, bar width=4.2pt, width=\columnwidth, height=4.6cm,
+  ymin=0, ymax=70, ytick={0,20,40,60},
+  ylabel={Unsafe answers (\%)}, ylabel style={font=\scriptsize},
+  symbolic x coords={Benign,Malicious,Typosquat,Vulnerable},
+  xtick=data, tick label style={font=\scriptsize}, enlarge x limits=0.12,
+  ymajorgrids, grid style={black!15}, axis lines*=left,
+  legend style={font=\scriptsize, at={(0.5,1.03)}, anchor=south, legend columns=3, draw=none},
+  legend image code/.code={\draw[#1] (0cm,-0.08cm) rectangle (0.25cm,0.12cm);}
+]
+\addplot[fill=cblue, draw=cblue!70!black] coordinates {(Benign,0) (Malicious,25.9) (Typosquat,45.9) (Vulnerable,18.2)};
+\addplot[fill=cblue!55, draw=cblue!70!black] coordinates {(Benign,3.1) (Malicious,45.1) (Typosquat,61.1) (Vulnerable,19.6)};
+\addplot[fill=cblue!20, draw=cblue!70!black] coordinates {(Benign,0) (Malicious,0) (Typosquat,0) (Vulnerable,12.8)};
+\legend{Llama 3.2 3B, Qwen 2.5 3B, Qwen 2.5 7B}
+\end{axis}
+\end{tikzpicture}
+\caption{Share of grounded answers (C3) that were unsafe, by family and model (S0, TEST). No model gave an unsafe
+answer on nonexistent cases, so that family is not shown. With the verifier (C4), no unsafe recommendation was
+delivered.}
+\label{fig:unsafe}
+\end{figure}
 
 Grounding did not make the answers safer (HYP3). For Llama 3.2 3B, giving the model the evidence made answers
 unsafe in cases where its ungrounded answer had been safe, on malicious cases (0 against 14 cases, Holm
@@ -674,6 +777,66 @@ cases, against 59 for the rules. On benign packages, Llama 3.2 3B delivered 5 of
 of its answers carried unsupported claims and were withheld. Generation failures add to the loss: the two 3B
 models failed to produce a valid grounded answer in 15 and 49 of their 300 cases.
 
+Fig.~\ref{fig:coverage} shows the cost in coverage by family. Table~\ref{tab:detect} treats the verifier as a
+detector of unsafe recommendations. Over the three models in S0 it reached a precision of 95.2\%, a recall of
+100\% and an accuracy of 99.0\%. Under the cut-offs its precision was 100\% in both settings, while recall was
+58.2\% in S1 and 61.5\% in S2, and accuracy 65.5\% and 68.5\%. Every false negative under a cut-off is a target
+whose only advisories were published after the cut-off (Section~\ref{sec:temporal}); measured against the
+evidence available at decision time, recall was 100\% in every setting.
+
+\begin{table}[t]
+\caption{The verifier as a detector of unsafe recommendations (TEST; P, R and Acc.\ in percent)}
+\label{tab:detect}
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}llrrrrrrr@{}}
+\toprule
+Set. & Model & TP & FN & FP & TN & P & R & Acc. \\
+\midrule
+S0 & Llama 3B & 39 & 0 & 3 & 143 & 92.9 & 100.0 & 98.4 \\
+ & Qwen 3B & 55 & 0 & 1 & 76 & 98.2 & 100.0 & 99.2 \\
+ & Qwen 7B & 6 & 0 & 1 & 172 & 85.7 & 100.0 & 99.4 \\
+ & \textit{All} & 100 & 0 & 5 & 391 & 95.2 & 100.0 & 99.0 \\
+\midrule
+S1 & Llama 3B & 33 & 6 & 0 & 4 & 100.0 & 84.6 & 86.0 \\
+ & Qwen 3B & 17 & 13 & 0 & 3 & 100.0 & 56.7 & 60.6 \\
+ & Qwen 7B & 7 & 22 & 0 & 14 & 100.0 & 24.1 & 48.8 \\
+ & \textit{All} & 57 & 41 & 0 & 21 & 100.0 & 58.2 & 65.5 \\
+\midrule
+S2 & Llama 3B & 33 & 6 & 0 & 5 & 100.0 & 84.6 & 86.4 \\
+ & Qwen 3B & 23 & 9 & 0 & 6 & 100.0 & 71.9 & 76.3 \\
+ & Qwen 7B & 8 & 25 & 0 & 12 & 100.0 & 24.2 & 44.4 \\
+ & \textit{All} & 64 & 40 & 0 & 23 & 100.0 & 61.5 & 68.5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar, bar width=3.4pt, width=\columnwidth, height=4.6cm,
+  ymin=0, ymax=105, ytick={0,25,50,75,100},
+  ylabel={Coverage (\%)}, ylabel style={font=\scriptsize},
+  symbolic x coords={Benign,Malicious,Nonexistent,Typosquat,Vulnerable},
+  xtick=data, tick label style={font=\scriptsize}, enlarge x limits=0.12,
+  ymajorgrids, grid style={black!15}, axis lines*=left,
+  legend style={font=\scriptsize, at={(0.5,1.03)}, anchor=south, legend columns=4, draw=none},
+  legend image code/.code={\draw[#1] (0cm,-0.08cm) rectangle (0.25cm,0.12cm);}
+]
+\addplot[fill=cgrey, draw=cgrey!70!black] coordinates {(Benign,100) (Malicious,41.7) (Nonexistent,100) (Typosquat,100) (Vulnerable,98.3)};
+\addplot[fill=cgreen, draw=cgreen!70!black] coordinates {(Benign,8.3) (Malicious,66.7) (Nonexistent,91.7) (Typosquat,29.3) (Vulnerable,43.3)};
+\addplot[fill=cgreen!55, draw=cgreen!70!black] coordinates {(Benign,31.7) (Malicious,36.7) (Nonexistent,3.3) (Typosquat,22.4) (Vulnerable,33.3)};
+\addplot[fill=cgreen!20, draw=cgreen!70!black] coordinates {(Benign,98.3) (Malicious,18.3) (Nonexistent,71.7) (Typosquat,63.8) (Vulnerable,36.7)};
+\legend{Rules (C1), Llama 3B (C4), Qwen 3B (C4), Qwen 7B (C4)}
+\end{axis}
+\end{tikzpicture}
+\caption{Coverage of the rules and of the verified models, by family (S0, TEST). Coverage is the share of cases
+that receive a delivered recommendation other than abstain.}
+\label{fig:coverage}
+\end{figure}
+
 \subsection{Rules against the LLM (RQ1b, HYP4)}
 In S0 the verified LLM and the rules delivered the same number of unsafe recommendations (none), but
 non-inferiority within 3 percentage points could not be shown: with no discordant case, the one-sided 95\%
@@ -683,6 +846,7 @@ family except malicious with Llama 3.2 3B (40 against 25 of 60). Under the cut-o
 recommendations (10 to 37 cases against 47 and 50), so the difference comes mainly from withholding.
 
 \subsection{Temporal hold-out}
+\label{sec:temporal}
 Under both cut-offs, the rules delivered a vulnerable target in 31 of 49 and 34 of 52 cases, and the verifier
 accepted every one of them. To explain this, we compared each delivered vulnerable target with the publication
 dates of the advisories whose affected range contains it. This analysis was made after scoring and was not
@@ -690,6 +854,34 @@ planned in the protocol. For every vulnerable target delivered by the rules (C1,
 (C4), all such advisories were published after the cut-off. Without the verifier, 31 of Llama 3.2 3B's vulnerable targets in each
 setting, and 5 to 7 of each Qwen model's, were already covered by an advisory visible at the cut-off; the
 verifier removed all of them.
+
+Fig.~\ref{fig:cutoff} compares the delivered rates of vulnerable targets under the two cut-offs.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  ybar, bar width=4.2pt, width=\columnwidth, height=4.8cm,
+  ymin=0, ymax=100, ytick={0,25,50,75,100},
+  ylabel={Delivered unsafe (\%)}, ylabel style={font=\scriptsize},
+  symbolic x coords={SoneL,SoneQt,SoneQs,StwoL,StwoQt,StwoQs},
+  xtick=data, xticklabels={S1 Llama, S1 Qwen 3B, S1 Qwen 7B, S2 Llama, S2 Qwen 3B, S2 Qwen 7B},
+  tick label style={font=\scriptsize}, x tick label style={rotate=25, anchor=north east, inner sep=1pt},
+  enlarge x limits=0.1, ymajorgrids, grid style={black!15}, axis lines*=left,
+  legend style={font=\scriptsize, at={(0.5,1.03)}, anchor=south, legend columns=3, draw=none},
+  legend image code/.code={\draw[#1] (0cm,-0.08cm) rectangle (0.25cm,0.12cm);}
+]
+\addplot[fill=cgrey, draw=cgrey!70!black] coordinates {(SoneL,63.3) (SoneQt,63.3) (SoneQs,63.3) (StwoL,65.4) (StwoQt,65.4) (StwoQs,65.4)};
+\addplot[fill=corange, draw=corange!70!black] coordinates {(SoneL,83.0) (SoneQt,61.2) (SoneQs,59.2) (StwoL,79.6) (StwoQt,61.5) (StwoQs,63.5)};
+\addplot[fill=cgreen, draw=cgreen!70!black] coordinates {(SoneL,12.2) (SoneQt,26.5) (SoneQs,44.9) (StwoL,11.5) (StwoQt,17.3) (StwoQs,48.1)};
+\legend{Rules (C1), Model (C3), Model and verifier (C4)}
+\end{axis}
+\end{tikzpicture}
+\caption{Delivered vulnerable or otherwise unsafe targets under the cut-offs (vulnerable family, TEST). Every
+target still delivered by the rules or by a verified model was covered only by advisories published after the
+cut-off.}
+\label{fig:cutoff}
+\end{figure}
 
 \section{Discussion}
 \textbf{Unsupported reasons are common even with the evidence in the prompt.} Giving a model the evidence
@@ -715,6 +907,12 @@ dependencies is of this kind, an upgrade that was clean when chosen and reported
 supports judging decisions against the advisories available at the time~\cite{singla2026}, and it means that a
 check at recommendation time has to be followed by monitoring afterwards.
 
+\textbf{What the base studies leave open, and what we found.} The comparison in Table~\ref{tab:base} named four
+gaps: remediation instead of generation, families beyond one, the reasons behind a fix, and an independent check
+after the model. On all four the answer is now measurable. Remediation advice from small models is often unsafe
+on malicious and typosquat cases, its reasons are often unsupported, and an independent verifier removes what the
+evidence can identify at the cost of coverage.
+
 \textbf{Rules remain a strong baseline.} In S0 the rule-based recommender was never unsafe and covered more cases
 than the verified model, which agrees with the vendor finding that deterministic strategies can beat model
 recommendations~\cite{sonatype2026}. Where the model had an advantage, it was coverage on malicious cases for one
@@ -727,9 +925,9 @@ rules abstain; we did not test this combination.
 \textbf{Construct validity.} No gold set of correct recommendations exists; ``unsafe'' and ``unsupported'' are
 defined by the study from evidence records, and an upgrade that is safe by its version range may still be
 inapplicable to a project~\cite{decan2018}. The verifier and the scorer share the version-range grammar, so
-their agreement on version facts is not independent evidence; hand-checked golden vectors guard the grammar.
-A human audit of the claim matcher and human ratings of recommendation acceptability are planned to validate
-the automatic metrics.
+their agreement on version facts is not independent evidence; fixed test vectors guard the grammar. Claim
+support is judged by a deterministic matcher whose rules are given in Section~\ref{sec:threat}; a different
+definition of support would give different rates.
 
 \textbf{Internal validity.} Registry recordings are not the registry's state at the cut-off dates; versions
 are filtered by upload time, but removals after a cut-off are not visible. Model training data may include
@@ -752,8 +950,7 @@ did not separate these.
 The malicious-package datasets contain real malware. No package archive was extracted for execution,
 installed, imported or run, and no dependency was installed from a dataset manifest. Registry access was
 limited to metadata, time-stamped and recorded. Evidence records retain their provenance (source, version,
-record identifier, file hash and license). The study uses no human subjects; any annotation is performed by the
-authors.
+record identifier, file hash and license). The study involves no human participants.
 
 % =====================================================================================================
 \section{Conclusion and Future Work}
@@ -765,10 +962,9 @@ typosquat cases, and the verifier delivered none of these while costing much of 
 equally safe. Under evidence cut-offs, every remaining unsafe delivery concerned an advisory published after the
 cut-off: verification enforces the evidence of its time.
 
-Future work includes evaluating larger hosted models on the same cases, running the complete test lists,
-adapting a model on the training split and re-evaluating it under the same frozen protocol, the human audit of
-the claim matcher and human acceptability ratings with a second annotator, ablation of individual verifier
-checks, a combined rules-then-LLM recommender, comparison with an existing audit tool, and extension of
+Future work includes evaluating larger models on the same cases, running the complete test lists, adapting a
+model on the training split and re-evaluating it under the same frozen protocol, ablation of individual verifier
+checks, a combined rules-then-model recommender, comparison with an existing audit tool, and extension of
 vulnerable-version evidence to npm.
 
 % TBD: acknowledgments and a statement on the use of AI tools, worded by the author according to the venue's policy.
