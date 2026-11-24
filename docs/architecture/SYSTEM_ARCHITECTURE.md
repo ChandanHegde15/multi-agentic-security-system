@@ -46,7 +46,7 @@ The evidence store is built offline from the normalized sources with a recorded 
 
 ## 3. The agents
 
-### Agent 1: dependency extraction
+### Agent 1: Dependency Extraction Agent
 
 | Item | Proposal |
 |---|---|
@@ -59,7 +59,7 @@ The evidence store is built offline from the normalized sources with a recorded 
 | Tests | Unit tests per format; real-manifest cases after human review of their gold lists; malformed-input cases. Tests never run an installer. |
 | Research metrics | Precision and recall of extracted (name, constraint) pairs against reviewed gold. Supporting only; not tied to an RQ. |
 
-### Agent 2: evidence collection
+### Agent 2: Evidence Collection Agent
 
 | Item | Proposal |
 |---|---|
@@ -72,7 +72,7 @@ The evidence store is built offline from the normalized sources with a recorded 
 | Tests | Lookup tests on a small fixture store; name normalization; version-range matching (PEP 440, semver); the cut-off filter; registry responses mocked from recorded fixtures. |
 | Research metrics | Evidence recall per family against the source lists; lookup error rate. Feeds RQ4. |
 
-### Agent 3: risk analysis
+### Agent 3: Risk Assessment Agent
 
 | Item | Proposal |
 |---|---|
@@ -86,7 +86,7 @@ The evidence store is built offline from the normalized sources with a recorded 
 | Tests | v1: the existing 13 tests, untouched. v2: one test per finding rule; label-separation tests (a malicious report never produces a vulnerable finding, and so on). |
 | Research metrics | RQ4: recall and false-positive rate per family, v1 against v2, on dated positives and benign-reference candidates. |
 
-### Agent 4: recommendation
+### Agent 4: Recommendation and Remediation Agent
 
 | Item | Proposal |
 |---|---|
@@ -100,7 +100,7 @@ The evidence store is built offline from the normalized sources with a recorded 
 | Tests | R0 rule tests; schema validation; prompt-construction tests; LLM calls replaced by recorded responses in tests. |
 | Research metrics | Unsafe recommendation rate, unsupported claim rate, citation precision and recall, coverage, target agreement, cost (RQ1–RQ3). |
 
-### Agent 5: independent verification
+### Agent 5: Verification Agent
 
 | Item | Proposal |
 |---|---|

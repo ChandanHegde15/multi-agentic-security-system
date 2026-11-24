@@ -1,0 +1,8 @@
+flowchart LR
+    F["1. Freeze<br/>hash protocol, plan,<br/>cases and prompt"] --> G["2. Generate<br/>save every<br/>model answer"]
+    G --> T["3. Targets<br/>list packages<br/>with no record"]
+    T --> L["4. Lookups<br/>record registry<br/>metadata once"]
+    L --> S["5. Score<br/>replay saved answers<br/>through the pipeline"]
+    S --> R["6. Report<br/>tables and<br/>statistical tests"]
+    classDef plain fill:#ffffff,stroke:#000000,color:#000000
+    class F,G,T,L,S,R plain
