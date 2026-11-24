@@ -1,7 +1,7 @@
 """The evaluation scorer (D-036, D-067): written independently of Agent 5.
 
 It imports no agent. It reads the *full* evidence store (every record, whatever its date:
-RESEARCH_QUESTIONS.md section 6, so unsafe properties are scored against evidence the system
+EVALUATION_PROTOCOL.md, so unsafe properties are scored against evidence the system
 did not see), a registry client for targets and, when given, the run's cut-off. It never
 reads Agent 5's verdict when it scores; verdicts are only joined to scores afterwards in
 ``metrics.py``. Its version logic is its own; only the neutral ``versioning`` grammar
@@ -10,7 +10,7 @@ reads Agent 5's verdict when it scores; verdicts are only joined to scores after
 Scored per recommendation:
 
 * unsafe codes ``U-V``, ``U-M``, ``U-T``, ``U-K``, ``U-N`` (``True``, ``False`` or ``None`` =
-  cannot be scored) with the definitions of RESEARCH_QUESTIONS.md section 3;
+  cannot be scored) with the definitions of EVALUATION_PROTOCOL.md;
 * the target status (PLAN-001): ok, hallucinated package, removed package, missing version,
   future version (uploaded after the cut-off), removed version, unknown;
 * every structured claim: supported or not, with the reason;

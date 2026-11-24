@@ -3,11 +3,11 @@
 One record is one claim made by one source about one package (and, where the
 source says so, one version or version range). Records are never merged into a
 single row per package, and label families are never merged into one flag
-(D-012; RESEARCH_METHODOLOGY.md section 3).
+(D-012; DATASET_CATALOG.md).
 
 Every record carries its provenance and, where the source gives one, its
 publication date, so that the evidence store can answer "what was known before
-date T" (RESEARCH_QUESTIONS.md section 6).
+date T" (EVALUATION_PROTOCOL.md).
 """
 
 from __future__ import annotations

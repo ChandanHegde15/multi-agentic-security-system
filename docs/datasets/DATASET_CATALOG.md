@@ -65,22 +65,22 @@ Paths are under `extracted\extras_v1\data\`. Each raw response keeps its retriev
 
 ### 2.2 Normalized evidence tables (built 2026-11-14)
 
-Built by code in `src/multi_agentic_security/datasets/`, written under `verified/normalized/v1/<family>/<table>/` (git-ignored), each with `MANIFEST.json` (counts, source version, licence, SHA-256 of outputs), `skips.csv` (every unmapped input and why) and `notes.csv`. Schema `evidence/1.1` (adds the typosquat target; identifiers unchanged). Mapping rules: D-046 (OSV) and D-048 (all others). Not yet approved for evaluation or training use (D-024 item 7). Cross-table evaluation: `DATASET_EVALUATION.md`.
+Built by code in `src/multi_agentic_security/datasets/`, written under `verified/normalized/v1/<family>/<table>/` (git-ignored), each with `MANIFEST.json` (counts, source version, license, SHA-256 of outputs), `skips.csv` (every unmapped input and why) and `notes.csv`. Schema `evidence/1.1` (adds the typosquat target; identifiers unchanged). Mapping rules: D-046 (OSV) and D-048 (all others). Not yet approved for evaluation or training use (D-024 item 7).
 
 | Table | Adapter | Records | Distinct packages | Dated | Notes (verified from the manifests) |
 |---|---|---:|---:|---|---|
 | `vulnerable/osv_pypi_a2` | `osv_pypi/2` | 23,632 | 1,696 (PyPI) | 100% | 14,212 advisories; skipped 12,017 `MAL-`, 607 withdrawn advisories, 483 non-PyPI entries, 1,535 `GIT` ranges, 23 uninterpretable ranges (13 recovered from listed versions), 23 without version data |
 | `malicious_withdrawn/openssf_a2` | `openssf/2` | 18,348 (malicious 17,498; withdrawn 850) | 12,354 | 99.95% (2022-05-31 to 2026-11-11) | All 12,354 reports mapped (11,992 malicious PyPI, 362 withdrawn PyPI and npm) |
 | `malicious/datadog_manifests` | `datadog/1` | 53,632 (npm 51,784; PyPI 1,848) | 50,434 | none | 48,343 whole-package, 5,289 listed versions; ai-skills and IDE manifests skipped; `Roblox.-com` and `roblox-com` are one PyPI name |
-| `malicious/malregistry_listing` | `malregistry/1` | 12,600 | 10,790 (PyPI) | none | Listed versions only; 38 non-package lines skipped; no licence stated |
+| `malicious/malregistry_listing` | `malregistry/1` | 12,600 | 10,790 (PyPI) | none | Listed versions only; 38 non-package lines skipped; no license stated |
 | `typosquat/ecosystems_typosquats` | `ecosystems/1` | 130 (PyPI 93, npm 37) | 130 | none | 35 other-ecosystem rows and 2 rows whose variant equals its target skipped |
 | `typosquat/yctt_pairs` | `yctt/1` | 406 (npm) | 406 | 100% (release date) | Dated by the dataset release, not the package upload time |
 | `benign_reference/pypi_popular` | `popular/1` | 15,000 | 15,000 | 100% (list date) | Candidates only |
 | `benign_reference/yctt_targets` | `yctt/1` | 232 (npm) | 232 | none | Candidates only |
 
-Superseded folders kept until the owner removes them: `vulnerable/osv_pypi` (adapter 1, no listed-version fallback) and `malicious_withdrawn/openssf` (adapter 1, skipped 113 withdrawn npm reports with `SEMVER` ranges).
+Superseded folders, kept locally and not used: `vulnerable/osv_pypi` (adapter 1, no listed-version fallback) and `malicious_withdrawn/openssf` (adapter 1, skipped 113 withdrawn npm reports with `SEMVER` ranges).
 
-Open checks (unverified): PROBLEM_DEFINITION.md section 1 counts 1,697 names with a non-withdrawn advisory and 606 withdrawn GHSA+PYSEC records; the OSV table has 1,696 and 607 (likely causes: the quarantined GHSA record; a withdrawn `OSV-` record). GHSA/PYSEC aliases still double-count the same vulnerability until alias groups are built.
+Open checks (unverified): an earlier count gave 1,697 names with a non-withdrawn advisory and 606 withdrawn GHSA+PYSEC records; the OSV table has 1,696 and 607 (likely causes: the quarantined GHSA record; a withdrawn `OSV-` record). GHSA/PYSEC aliases still double-count the same vulnerability until alias groups are built.
 
 ## 3. Submitter-derived material (review status, not ground truth)
 
@@ -93,7 +93,7 @@ Open checks (unverified): PROBLEM_DEFINITION.md section 1 counts 1,697 names wit
 
 ## 4. Approval status
 
-All sources: `approved_for_evaluation = false` and `approved_for_training = false`. They change only by an owner decision recorded in `DECISIONS.md`.
+All sources: `approved_for_evaluation = false` and `approved_for_training = false`. They change only by a recorded project decision.
 
 ## 5. Known data-quality issues
 
@@ -113,13 +113,12 @@ All sources: `approved_for_evaluation = false` and `approved_for_training = fals
 ### Added in Session 01 (verified against the raw files, 2026-11-13)
 
 8. LibHalluBench: 963 describe rows ("lesser known", "not widely used", "hidden gem") contain an unrendered template string (`{<HallucinationLevel.LIBRARY: 'library'>: ...}`) in the prompt. Whether this is upstream or an export artifact is unverified.
-9. LibHalluBench `mistake` names are not nonexistence labels: 25 of the 1,049 distinct names are names of OpenSSF-reported malicious PyPI packages (34 are in at least one malicious or typosquat list). They occur in 192 of the 1,926 specify prompts. See `docs/research/FOUNDATION_REVIEW.md` §3.
+9. LibHalluBench `mistake` names are not nonexistence labels: 25 of the 1,049 distinct names are names of OpenSSF-reported malicious PyPI packages (34 are in at least one malicious or typosquat list). They occur in 192 of the 1,926 specify prompts.
 13. The submitter's `benchmarks/agent2/libhallubench_specify_lookup.jsonl` records `registry_error` for 859 of its 1,049 lookups (189 `not_found`, 1 `verified`). It cannot be used even as a cross-check of which names exist.
 10. Package Hallucination: 63 mentions are absent at generation (29 distinct normalized names in `packages.csv`); `manual_review.csv` has 45 rows (34 hallucination, 4 real, 7 other). The 29-versus-45 relationship is unresolved. `generations.jsonl` holds six model names; the README names three.
 11. Ecosyste.ms is not independent of the malicious lists: 82 of 167 rows are attributed to OpenSSF or DataDog.
 12. Readable on disk after quarantine: 11,992 OpenSSF malicious reports and 26,859 OSV records.
 
-Per-dataset meaning, legitimate ground truth and limits: `docs/research/PROBLEM_DEFINITION.md` §1.
 
 ## 6. Missing or partial sources (acquisition deferred, D-010)
 

@@ -1,4 +1,4 @@
-"""Package-name normalization (RESEARCH_METHODOLOGY.md section 3, item 1).
+"""Package-name normalization (DATASET_CATALOG.md).
 
 PyPI names follow PEP 503: runs of ``-``, ``_`` and ``.`` become a single ``-``
 and the result is lower-cased. npm names are lower-cased; a scope

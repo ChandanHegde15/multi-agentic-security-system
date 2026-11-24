@@ -1,5 +1,5 @@
 """Held-out results report (D-100): turns scored result folders into the tables the protocol names
-(EVALUATION_PROTOCOL.md sections 9 and 10, RESEARCH_QUESTIONS.md section 4). Read-only on results; no calls.
+(EVALUATION_PROTOCOL.md sections 9 and 10). Read-only on results; no calls.
 
 Input per job: the folder written once by ``heldout.score`` (``rows.jsonl``, ``metrics.json``, ``protocol.json``)
 and the job's case list (for the package clusters of the bootstrap, D-084). Every number is recomputed from

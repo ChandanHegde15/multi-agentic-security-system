@@ -189,6 +189,20 @@ def test_fixed_bounds():
     assert fixed_bounds([">=2.0.0,<2.31.0", "<2.32.0", ">=1.0"]) == ["2.31.0", "2.32.0"]
 
 
+def test_fixed_bounds_order_of_equal_versions_does_not_depend_on_the_hash_seed():
+    """D-102 regression: "1.19" and "1.19.0" are equal versions; their order came from set iteration, so the Agent 4
+    prompt differed between processes and a cache replay missed (numpy held-out cases). Separate processes, no network."""
+    import subprocess
+    import sys
+    code = ("from multi_agentic_security.agents.agent3_risk.versions import fixed_bounds;"
+            "print(fixed_bounds(['<1.19.0', '<1.19', '>=1.20,<1.21', '<1.19.0.0']))")
+    seen = set()
+    for seed in range(12):
+        env = {**__import__("os").environ, "PYTHONHASHSEED": str(seed), "PYTHONPATH": str(ROOT / "src")}
+        seen.add(subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True).stdout.strip())
+    assert seen == {"['1.19', '1.19.0', '1.19.0.0', '1.21']"}
+
+
 # --------------------------------------------------------------------------- similarity
 
 @pytest.mark.parametrize("a,b,d", [("requests", "requests", 0), ("reqeusts", "requests", 1), ("request", "requests", 1),

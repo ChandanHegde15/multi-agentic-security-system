@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from multi_agentic_security.agents.agent2_registry import SnapshotRegistryClient
-from multi_agentic_security.agents.agent4_recommendation import LLMError, LLMResponse
+from multi_agentic_security.agents.agent4_recommendation import LLMError, LLMResponse, LLMTimeout
 from multi_agentic_security.evaluation import Case, write_cases
 from multi_agentic_security.evaluation import heldout as H
 from multi_agentic_security.evidence_store import EvidenceStore
@@ -45,9 +45,10 @@ KEEP = '{"action": "keep", "claims": []}'
 class Fake:
     """A stand-in for a real client: fixed answers per package name, optional failures, counted calls."""
 
-    def __init__(self, provider="ollama", model="llama3.2:3b", answers=None, fail=(), spacing=12.0, cut_first=False):
+    def __init__(self, provider="ollama", model="llama3.2:3b", answers=None, fail=(), spacing=12.0, cut_first=False, slow=()):
         self.provider, self.model, self._min_interval = provider, model, spacing
         self.answers, self.fail, self.cut_first, self.calls = answers or {}, set(fail), cut_first, 0
+        self.slow = set(slow)
 
     def generate(self, request):
         self.calls += 1
@@ -55,6 +56,9 @@ class Fake:
         for name in self.fail:
             if f'"package": "{name}"' in text:
                 raise LLMError(code="http_503")
+        for name in self.slow:
+            if f'"package": "{name}"' in text:
+                raise LLMTimeout(code="timeout")
         if self.cut_first and len(request.messages) == 1:
             return LLMResponse(text="", stop_reason="length")
         for name, answer in self.answers.items():
@@ -180,6 +184,23 @@ def test_failed_generations_are_states_and_are_retried_on_the_next_run(world):
     assert s2["generated"] == 2 and fixed.calls == 2 and s2["failed_pairs"] == 0
 
 
+def test_a_redo_regenerates_exactly_the_named_pairs_and_records_why(world):
+    """D-102: a pair whose recorded request cannot be reproduced is regenerated on purpose, nothing else."""
+    gen(world, llm=Fake(fail={"evil-pkg"}))                          # 2 failed pairs stay failed below
+    lines_path = world["root"] / "out" / "S0__ollama__llama3.2_3b" / "generations.jsonl"
+    before = lines_path.read_text(encoding="utf-8").splitlines()
+    pair = (json.loads(before[0])["case_id"], json.loads(before[0])["variant"])
+    with pytest.raises(H.RunnerError):
+        gen(world, redo=[pair])                                        # no reason
+    with pytest.raises(H.RunnerError):
+        gen(world, redo=[("case-nope", "LLM-G")], redo_reason="x")    # not in the job
+    fake = Fake(fail={"evil-pkg"})
+    s = gen(world, llm=fake, redo=[pair], redo_reason="D-102 test")
+    after = lines_path.read_text(encoding="utf-8").splitlines()
+    assert s["generated"] == 1 and len(after) == len(before) + 1 and after[:len(before)] == before
+    assert json.loads(after[-1])["redo_reason"] == "D-102 test" and s["failed_pairs"] == 2
+
+
 def test_only_one_gpu_job_runs_at_a_time(world):
     with H.lock_for(world["plan"], world["plan"].job("S1__ollama__llama3.2_3b")):
         with pytest.raises(H.RunnerError, match="gpu.lock is held"):
@@ -253,6 +274,17 @@ def test_score_replays_from_the_cache_and_writes_once(world):
     assert {r["generation_status"] for r in rows if r["case_id"] == "case-mali-evil-pkg" and r["condition"] in ("C2", "C3")} == {"llm_error"}
     with pytest.raises(FileExistsError):
         H.score(world["plan"], job, store=world["store"], registry_client=world["client"], n_boot=20)
+
+
+def test_a_recorded_timeout_replays_as_a_timeout(world):
+    """D-103: errors are never cached, so a cache-only replay used to turn a recorded llm_timeout into llm_error and the
+    replay check refused the job. The replay now raises the recorded timeout for that exact request."""
+    gen(world, llm=Fake(slow={"evil-pkg"}))
+    job = world["plan"].job("S0__ollama__llama3.2_3b")
+    out = H.score(world["plan"], job, store=world["store"], registry_client=world["client"], n_boot=20)
+    rows = [json.loads(l) for l in (world["root"] / "results" / job.job_id / "rows.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert {r["generation_status"] for r in rows if r["case_id"] == "case-mali-evil-pkg" and r["condition"] in ("C2", "C3")} == {"llm_timeout"}
+    assert out["cache_hits"] == 6
 
 
 def test_a_replay_that_differs_from_the_run_writes_nothing(world):

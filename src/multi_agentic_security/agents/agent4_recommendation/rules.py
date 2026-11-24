@@ -1,4 +1,4 @@
-"""R0: the deterministic rule recommender (RESEARCH_QUESTIONS.md section 7, D-062).
+"""R0: the deterministic rule recommender (EVALUATION_PROTOCOL.md, D-062).
 
 R0 reads Agent 3's findings and the evidence records in the packet; it never looks
 anything up. The first rule that matches decides (order in ``decide``):

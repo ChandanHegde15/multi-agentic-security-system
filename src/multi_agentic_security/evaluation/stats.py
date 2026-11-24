@@ -1,4 +1,4 @@
-"""Statistics for the evaluation (RESEARCH_QUESTIONS.md section 10, D-067). Pure Python, seeded,
+"""Statistics for the evaluation (EVALUATION_PROTOCOL.md, D-067). Pure Python, seeded,
 no extra dependencies.
 
 * Wilson interval for a proportion;

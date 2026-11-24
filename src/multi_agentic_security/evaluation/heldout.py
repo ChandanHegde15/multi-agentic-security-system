@@ -29,20 +29,20 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
 from multi_agentic_security.agents.agent4_recommendation import LLMOptions
-from multi_agentic_security.agents.agent4_recommendation.llm import FileResponseStore, LLMError, MemoryResponseStore
+from multi_agentic_security.agents.agent4_recommendation.llm import FileResponseStore, LLMError, LLMTimeout, MemoryResponseStore
 
 from multi_agentic_security.pipeline import CachingLLMClient, PipelineConfig, run_pipeline
 
 from .cases import Case, case_to_files, read_cases
 from .harness import EvalEnv, run_evaluation, write_result
 
-RUNNER_VERSION = "heldout_runner/0.1"
+RUNNER_VERSION = "heldout_runner/0.2"     # 0.2: redo of named pairs (D-102); recorded timeouts replay as timeouts (D-103)
 PLAN_FORMAT = "heldout_plan/1"
 FREEZE_FORMAT = "protocol_freeze/1"
 SETTINGS = ("S0", "S1", "S2")
 PROVIDERS = ("ollama", "groq")
 VARIANTS = ("LLM-U", "LLM-G")
-DAILY_CAP = 150                      # real calls per hosted model per UTC day (owner's rule)
+DAILY_CAP = 150                      # real calls per hosted model per UTC day (free-tier limit)
 MIN_SPACING_S = 12.0
 CALLS_PER_GENERATION = 5             # worst case: 1 + 2 schema repairs + 2 transport retries
 
@@ -246,9 +246,13 @@ def _done(gen_path: Path) -> dict:
 
 
 def generate(plan: Plan, job: Job, *, llm, store, registry_client, utc_now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-             image_id: Optional[str] = None, ledger: Optional[Ledger] = None, log: Callable[[str], None] = print) -> dict:
+             image_id: Optional[str] = None, ledger: Optional[Ledger] = None, log: Callable[[str], None] = print,
+             redo: Iterable[tuple[str, str]] = (), redo_reason: Optional[str] = None) -> dict:
     """Generate the job's answers (resumable). ``llm`` is the real client; it is wrapped here in the call counter
-    and the response cache, in that order, so cache hits cost nothing."""
+    and the response cache, in that order, so cache hits cost nothing.
+
+    ``redo`` (D-102): regenerate exactly these (case, variant) pairs, even if they are ``ok``, and nothing else; each
+    new line carries ``redo_reason``. The earlier lines stay in the log (the last line of a pair counts)."""
     _require_snapshot(registry_client)
     if llm.provider != job.provider or llm.model != job.model:
         raise RunnerError(f"client {llm.provider}/{llm.model} is not the job's model {job.provider}/{job.model}")
@@ -272,6 +276,14 @@ def generate(plan: Plan, job: Job, *, llm, store, registry_client, utc_now: Call
     raw = FileResponseStore(run_dir / "raw")
     opts = _options(plan, job)
     done = {k for k, v in _done(gen_path).items() if v.get("generation_status") == "ok"}
+    redo = set(redo)
+    if redo:
+        if not redo_reason:
+            raise RunnerError("a redo needs a recorded reason")
+        unknown = redo - {(c.case_id, v) for c in cases for v in VARIANTS}
+        if unknown:
+            raise RunnerError(f"redo pairs are not in job {job.job_id}: {sorted(unknown)}")
+        done = {(c.case_id, v) for c in cases for v in VARIANTS} - redo
     stats = {"job": job.job_id, "cases": len(cases), "already_ok": len(done), "generated": 0, "stopped": None}
     log(f"{job.job_id}: {len(cases)} cases, {len(done)} pairs already ok, call allowance today {allowance if ledger else 'none'}")
     with lock_for(plan, job):
@@ -306,6 +318,8 @@ def generate(plan: Plan, job: Job, *, llm, store, registry_client, utc_now: Call
                             "target": r.target.model_dump(mode="json") if r.target else None,
                             "model": r.model, "prompt_version": r.prompt_version, "raw_ref": r.raw_response_ref}
                 line["at"] = utc_now().isoformat()
+                if redo:
+                    line["redo_reason"] = redo_reason
                 with open(gen_path, "a", encoding="utf-8") as fh:
                     fh.write(json.dumps(line, sort_keys=True) + "\n")
                 stats["generated"] += 1
@@ -350,11 +364,28 @@ def missing_targets(plan: Plan, job: Job, registry_client) -> dict:
 # --------------------------------------------------------------------------- score
 
 class _CacheOnly:
-    def __init__(self, provider: str, model: str):
-        self.provider, self.model = provider, model
+    """Scoring makes no calls. Errors are never cached (D-094), so a miss replays the error the run recorded for that
+    exact request (D-103): a request whose latest raw record is a timeout raises ``LLMTimeout`` again, any other miss
+    raises ``LLMError`` (``llm_error``), as before."""
+
+    def __init__(self, provider: str, model: str, timed_out: frozenset = frozenset()):
+        self.provider, self.model, self._timed_out = provider, model, timed_out
 
     def generate(self, request):
+        if request.key(self.provider, self.model) in self._timed_out:
+            raise LLMTimeout("recorded timeout replayed", code="timeout")
         raise LLMError("cache miss: scoring makes no calls", code="cache_miss")
+
+
+def recorded_timeouts(raw_dir: Path) -> frozenset:
+    """Request keys whose latest raw record (by time received) is a timeout (D-103)."""
+    latest: dict = {}
+    for f in sorted(raw_dir.glob("*.json")) if raw_dir.is_dir() else ():
+        d = json.loads(f.read_text(encoding="utf-8"))
+        k, t = d.get("request_key"), d.get("received_at") or ""
+        if k and (k not in latest or t >= latest[k][0]):
+            latest[k] = (t, str(d.get("error") or "").startswith("LLMTimeout"))
+    return frozenset(k for k, (_, timeout) in latest.items() if timeout)
 
 
 COND_VARIANT = {"C2": "LLM-U", "C3": "LLM-G", "C4": "LLM-G"}
@@ -388,7 +419,8 @@ def score(plan: Plan, job: Job, *, store, registry_client, n_boot: int = 2000) -
     absent = [(c.case_id, v) for c in cases for v in VARIANTS if (c.case_id, v) not in last]
     if absent:
         raise RunnerError(f"job {job.job_id}: {len(absent)} (case, variant) pairs have no generation yet; generate first")
-    llm = CachingLLMClient(_CacheOnly(job.provider, job.model), plan.path(plan.cache_root) / f"{job.provider}_{model_tag(job.model)}")
+    timed_out = recorded_timeouts(plan.path(plan.out_root) / job.job_id / "raw")
+    llm = CachingLLMClient(_CacheOnly(job.provider, job.model, timed_out), plan.path(plan.cache_root) / f"{job.provider}_{model_tag(job.model)}")
     env = EvalEnv(evidence_store=store, registry_client=registry_client, cutoff=job.cutoff_dt,
                   llms={"LLM-U": llm, "LLM-G": llm}, response_store=MemoryResponseStore(), llm_options=_options(plan, job))
     res = run_evaluation(cases, env, ("R0",) + VARIANTS, n_boot=n_boot)
@@ -406,7 +438,7 @@ def score(plan: Plan, job: Job, *, store, registry_client, n_boot: int = 2000) -
         raise RunnerError(f"job {job.job_id}: replay differs from the run ({len(mismatches)} status mismatches, "
                           f"{len(unexplained)} unexplained pipeline errors); nothing written. "
                           f"First: {(mismatches or unexplained)[:3]}")
-    res.protocol.update({"runner": RUNNER_VERSION, "job": job.__dict__, "cache_hits": llm.hits, "cache_misses": llm.misses,
+    res.protocol.update({"runner": RUNNER_VERSION, "recorded_timeouts_replayed": len(timed_out), "job": job.__dict__, "cache_hits": llm.hits, "cache_misses": llm.misses,
                          "replay_check": "every replayed generation status equals the generation log",
                          "excluded_case_ids_in_job": sorted(set(plan.excluded_case_ids) & {c.case_id for c in cases}),
                          "snapshot_folders": list(plan.snapshot_folders),
@@ -445,6 +477,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--freeze", required=True)
     ap.add_argument("--root", default=".")
     ap.add_argument("--secrets", default=None, help="path of the local secrets file (hosted jobs only)")
+    ap.add_argument("--redo", action="append", default=[], metavar="CASE_ID:VARIANT",
+                    help="generate: regenerate exactly these pairs (D-102); needs --redo-reason")
+    ap.add_argument("--redo-reason", default=None)
     a = ap.parse_args(argv)
     from multi_agentic_security.evidence_store import EvidenceStore
     from multi_agentic_security.pipeline import MultiSnapshotClient
@@ -464,7 +499,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     from multi_agentic_security.agents.agent4_recommendation import providers
     if job.provider == "ollama":
         llm = providers.OllamaClient(job.model, num_ctx=8192)
-        generate(plan, job, llm=llm, store=store, registry_client=client, image_id=ollama_image_id(job.model))
+        redo = [tuple(x.rsplit(":", 1)) for x in a.redo]
+        generate(plan, job, llm=llm, store=store, registry_client=client, image_id=ollama_image_id(job.model),
+                 redo=redo, redo_reason=a.redo_reason)
     else:
         if not a.secrets:
             raise RunnerError("hosted jobs need --secrets")

@@ -281,4 +281,6 @@ def fixed_bounds(ranges: list[str]) -> list[str]:
                     out.add(s.version)
         except InvalidSpecifier:
             continue
-    return sorted(out, key=lambda v: _pv(v))
+    # D-102: equal versions written differently ("1.19" and "1.19.0") are ordered by their text, so the order does
+    # not depend on set iteration (string hash seed) and the Agent 4 prompt is the same in every process.
+    return sorted(out, key=lambda v: (_pv(v), v))

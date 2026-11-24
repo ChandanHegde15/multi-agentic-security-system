@@ -1,4 +1,4 @@
-"""Shared pieces for source adapters (RESEARCH_METHODOLOGY.md section 3, D-024).
+"""Shared pieces for source adapters (DATASET_CATALOG.md, D-024).
 
 Adapters read text files only. They never extract archives, run code or
 contact the network. Every input that is not mapped is reported as a ``Skip``

@@ -3,7 +3,7 @@
 Pins R0's action and Agent 5's verdict for every dependency, with and without a cut-off.
 The only verdict that is not 'accept' is compromised-lib under the cut-off: its pin 1.2.0
 was uploaded after the cut-off, so 'keep' cannot be checked and needs review. That is a
-correct verifier decision, not an R0 defect (RUN_LOG, D-062). No network, no dataset files.
+correct verifier decision, not an R0 defect (D-062). No network, no dataset files.
 """
 
 import socket

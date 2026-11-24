@@ -1,4 +1,4 @@
-"""Metrics per condition and family (RESEARCH_QUESTIONS.md sections 7 and 10, D-067).
+"""Metrics per condition and family (EVALUATION_PROTOCOL.md, D-067).
 
 A **row** joins one case, the scorer's ``Score`` and, for verifier conditions, Agent 5's verdict
 (joined only here; the scorer never sees it). A condition decides what is *shown*:

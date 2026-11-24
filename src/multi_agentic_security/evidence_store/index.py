@@ -43,7 +43,7 @@ class TableSpec:
         return f"{self.folder}/{self.table}"
 
 
-# Current tables (docs/datasets/DATASET_EVALUATION.md, 2026-11-14). Superseded builds
+# Current tables (docs/datasets/DATASET_CATALOG.md). Superseded builds
 # (vulnerable/osv_pypi, malicious_withdrawn/openssf) are deliberately absent.
 CURRENT_TABLES: tuple[TableSpec, ...] = (
     TableSpec("vulnerable", "osv_pypi_a2", ("vulnerable",)),

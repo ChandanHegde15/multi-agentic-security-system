@@ -1,31 +1,47 @@
-# Multi-Agentic Security System
+# Agentic Defense Against AI-Hallucinated Package Poisoning
 
-Research project on detecting nonexistent (for example LLM-hallucinated), typosquatted, reported-malicious and known-vulnerable software dependencies, and on producing **evidence-grounded, independently verified remediation recommendations** with a five-agent pipeline.
+An evaluation study of how language models fix risky software dependencies. When a scanner flags a package as malicious, typosquatted, vulnerable or nonexistent, and a model is asked what to do about it, two things can go wrong: the recommended fix can itself be unsafe, and the reasons the model gives can be unsupported by the evidence it cites. This project measures both, and measures what an independent, deterministic verifier changes.
 
-## Status
+## How it works
 
-- The research foundation and the narrowed research direction are approved (see `DECISIONS.md`, D-017 to D-056). The user-facing system is specified in D-047: upload (files, ZIP, Git link or generated code) → Agents 1 to 5 → per-agent dashboards with an explanation for every decision.
-- Implemented: the frozen **Agent 3 v1 baseline** (`src/multi_agentic_security/agents/agent3_risk/baseline_v1/`), the evidence record contract, the pipeline contracts between all five agents (`src/multi_agentic_security/contracts/`), source adapters that build the normalized evidence tables (`src/multi_agentic_security/datasets/`; results in `docs/datasets/DATASET_EVALUATION.md`), and **Agent 1** (`src/multi_agentic_security/agents/agent1_ingestion/`): dependencies from `requirements*.txt`, `package.json` and `package-lock.json`, imports in Python and JavaScript/TypeScript code, install commands in scripts, Dockerfiles and text, with safe in-memory intake of ZIP archives, folders and public GitHub links (D-049 to D-052); and **Agent 2** (`src/multi_agentic_security/agents/agent2_registry/`, with the read-only evidence index in `src/multi_agentic_security/evidence_store/`): PyPI and npm registry metadata in `off`, `snapshot` or `live` mode, and the evidence records that name each package, per label family, with an evidence cut-off (D-053, D-054). Runs on real data or the network are recorded in `docs/research/RUN_LOG.md`. **Agent 3** (`src/multi_agentic_security/agents/agent3_risk/`) reports the frozen v1 score next to version-aware findings per label family, with evidence IDs and reasons (D-055, D-056).
-- Also implemented: **Agent 5**, an isolated deterministic verifier (`src/multi_agentic_security/agents/agent5_verification/`, D-059 to D-061); **Agent 4**, with the rule baseline R0 and a provider-independent LLM interface and Groq adapter (`src/multi_agentic_security/agents/agent4_recommendation/`, D-062 to D-069); the **pipeline orchestrator**, a LangGraph state graph with guardrails, run records and LLM cost control (`src/multi_agentic_security/pipeline/`, D-066); and the **evaluation machinery**: an independent scorer, per-family metrics, statistics, cases and train/dev/test splits (`src/multi_agentic_security/evaluation/`, D-067, D-070; split design in `docs/research/EVALUATION_SPLITS.md`).
-- Not done: no scored evaluation has been run on real cases and the evaluation protocol is not frozen (`docs/research/RUN_LOG.md`, PLAN-002); the dashboards and the backend API are not planned. Only fixture-based trials of the LLM back end have been made (TRIAL-001, TRIAL-002).
+A five-agent pipeline turns a manifest into a report. Only Agent 4 can use a language model.
 
-## Research question
+| Agent | Role | Language model |
+|---|---|---|
+| 1 Extraction | Parses `requirements.txt`, `pyproject.toml`, `Pipfile`, `package.json`, code imports and install commands | no |
+| 2 Evidence | Looks up evidence records and recorded registry metadata for each dependency, filtered by a cut-off date | no |
+| 3 Findings | One finding per label family, version-aware, with evidence IDs | no |
+| 4 Recommendation | Rules (R0), or a model given only the finding names (LLM-U) or the evidence records too (LLM-G) | LLM-U, LLM-G |
+| 5 Verification | Ten deterministic checks: accept, reject or abstain. Shares no code or model with Agent 4 | no |
 
-> How reliable are remediation recommendations for flagged dependencies, and what do evidence grounding and deterministic verification change?
+Every decision carries its reasons. Failures are explicit states, never defaults. Uploaded files are never installed, imported or executed.
 
-It is answered by three measurements: how often the claims in a recommendation are unsupported by the evidence they cite; whether an LLM recommender is non-inferior to deterministic recommenders; and how much a deterministic verifier reduces risky upgrade targets for vulnerable PyPI packages. The project is an evaluation study; its pipeline is not claimed as novel.
+## Main results (held-out test cases)
 
-Details: `docs/research/RESEARCH_QUESTIONS.md`.
+Three local models (Llama 3.2 3B, Qwen 2.5 3B, Qwen 2.5 7B) on 298 test cases, five label families, and two evidence cut-off settings for vulnerable packages:
 
-## Documentation
+- **Unsupported reasons.** With the evidence in the prompt, every model still made unsupported claims (for vulnerable packages: 8 of 24, 25 of 38 and 50 of 95 claims).
+- **Unsafe fixes.** The two 3B models often kept a malicious or typosquatted package, or proposed a replacement that was itself malicious or a typosquat.
+- **Verifier.** It delivered no unsafe recommendation without a cut-off: 100 unsafe recommendations removed, 5 of 396 acceptable ones wrongly rejected. The cost is coverage.
+- **Rules.** The rule-based recommender was never unsafe without a cut-off and covered more cases.
+- **Time.** Under cut-offs, every vulnerable target that was still delivered had its advisory published after the cut-off. The verifier removed every target whose advisory was already known.
 
-| Document | Content |
+Details: [`docs/research/RESULTS.md`](docs/research/RESULTS.md).
+
+## Repository
+
+| Path | Content |
 |---|---|
-| `PROJECT_BRIEF.md` | Aim, history, scope, repository structure |
-| `DECISIONS.md` | Approved decisions and their reasons |
-| `docs/research/` | Problem definition, literature review, gap matrix, research questions, methodology, foundation review |
+| `src/multi_agentic_security/agents/` | The five agents |
+| `src/multi_agentic_security/pipeline/` | LangGraph orchestration, guardrails, response cache |
+| `src/multi_agentic_security/contracts/` | Typed contracts between the agents and for evidence records |
+| `src/multi_agentic_security/datasets/`, `evidence_store/` | Source adapters and the evidence store |
+| `src/multi_agentic_security/evaluation/` | Cases, scorer, metrics, statistics, held-out runner and report |
+| `tests/` | Unit and integration tests (no network) |
 | `docs/architecture/` | System architecture and agent contracts |
-| `docs/datasets/` | Dataset catalog, dataset evaluation and the dataset migration record |
+| `docs/datasets/DATASET_CATALOG.md` | Data sources, versions and licenses |
+| `docs/research/` | Frozen evaluation protocol, amendments, splits, held-out plans and freeze records, results |
+| `docs/paper/` | The paper and the literature review (IEEE format, LaTeX) |
 
 ## Running the tests
 
@@ -35,12 +51,16 @@ Python 3.13:
 PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider
 ```
 
+1,321 tests pass without network access.
+
 ## Data
 
-The research data is **not** in this repository. It consists of public research datasets (LibHalluBench, Package Hallucination, Ecosyste.ms Typosquatting, You Can't Touch This, OpenSSF Malicious Packages, DataDog manifests, OSV.dev, PyPI MalRegistry listing, real-world manifests), described with sources and licences in `docs/datasets/DATASET_CATALOG.md`.
+The research data is **not** in this repository. It comes from public research datasets (LibHalluBench, Package Hallucination, Ecosyste.ms Typosquatting, You Can't Touch This, OpenSSF Malicious Packages, DataDog manifests, OSV.dev, PyPI MalRegistry listing, PyPI popular packages and real-world manifests), described with sources and licenses in `docs/datasets/DATASET_CATALOG.md`. Some of these sources contain live malware or have no redistribution rights. Do not install or run anything from them.
 
-On the owner's machine it lives in `research/datasets/`, which is git-ignored. It includes live malware inside an archive and data without redistribution rights, so it must never be committed. Do not run `pip install` or `npm install` against any manifest from the datasets.
+## Authors
 
-## Licence
+Chandan Prakash Hegde, Gaargi L, Disha T P, Chethan Magudilu Shivanna, and Spoorthi M (Assistant Professor). Department of Information Science and Engineering, Dayananda Sagar College of Engineering, Bangalore, India.
+
+## License
 
 Not yet chosen.

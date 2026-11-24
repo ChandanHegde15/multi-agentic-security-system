@@ -1,4 +1,4 @@
-"""Sampling real-project dependency pins from GitHub (D-040, D-041 c, D-044; RESEARCH_METHODOLOGY section 7.1).
+"""Sampling real-project dependency pins from GitHub (D-040, D-041 c, D-044).
 
 Read-only and text-only: repository search, one commit query per cut-off, one directory listing and at most three
 ``requirements*.txt`` files per snapshot, fetched as text. Nothing is cloned, installed or executed. The network sits

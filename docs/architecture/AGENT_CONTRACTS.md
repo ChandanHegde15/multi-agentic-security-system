@@ -6,7 +6,7 @@ Status 2026-11-17:
 - **Agent 3 v2** and the adapter to the frozen v1 baseline are implemented (see "Agent 3: risk findings" below, D-055 to D-058, D-060, D-061).
 - **Agent 5** is implemented (see "Agent 5: independent verification" below, D-059 to D-061).
 - The **Agent 3 v1 baseline** contract is implemented. It is documented below from the code in `src/multi_agentic_security/agents/agent3_risk/baseline_v1/` and is unchanged.
-- **Agent 4** is implemented (see "Agent 4: recommendation" below, D-062): the R0 rules, the provider-independent LLM interface and the Groq adapter (D-064, D-068); the first live calls are recorded in TRIAL-001 (`RUN_LOG.md`). The design rationale is in `SYSTEM_ARCHITECTURE.md`.
+- **Agent 4** is implemented (see "Agent 4: recommendation" below, D-062): the R0 rules, the provider-independent LLM interface and the Groq adapter (D-064, D-068). The design rationale is in `SYSTEM_ARCHITECTURE.md`.
 
 ## Requirements that apply to every new contract (from approved decisions)
 
@@ -27,7 +27,7 @@ These take precedence over the draft contracts below until those are rewritten f
 | All | Every decision record carries `reasons`: `[{rule_id, outcome, explanation, inputs, evidence_ids}]`. A decision without a reason is a contract violation. |
 | Agent 1 | Input sources: `requirements_txt`, `package_json`, `package_lock_json`, `python_code`, `javascript_code`, `install_command_text`, `archive`, `directory`, `git_repository`. Dependency types: `runtime`, `dev`, `optional`, `peer`, `import`, `install_command`. Each record keeps the original declaration, source path and line, and an `extraction_status` (`ok`, `warning`, `unresolved`). Import names that cannot be mapped to a package stay `unresolved`. |
 | Agent 2 | Registry statuses `found`, `not_found`, `security_placeholder`, `lookup_error`, `invalid_response`, `not_checked`; `registry_mode` `live`, `snapshot`, `off`. |
-| Agent 3 | Output holds the frozen v1 result (labelled baseline) and the v2 findings side by side. |
+| Agent 3 | Output holds the frozen v1 result (labeled baseline) and the v2 findings side by side. |
 | Agent 4 | Actions `remove`, `replace`, `upgrade`, `downgrade`, `keep`, `investigate`, `abstain`. Hosted LLM API behind one interface; records `backend`, `model`, `prompt_version`, `generation_status`. |
 | Agent 5 | Runs isolated from Agent 4 (no import of Agent 4 code, no LLM, reads only the structured recommendation, the evidence store and read-only registry lookups). Verdict shown as verified (`accept`), rejected (`reject`) or needs review (`abstain`). |
 
@@ -36,7 +36,7 @@ These take precedence over the draft contracts below until those are rewritten f
 - **Code:** `src/multi_agentic_security/agents/agent3_risk/baseline_v1/`
   - `analyzer.py`: scoring
   - `similarity.py`: Levenshtein
-  - `reference_packages.py`: catalogue
+  - `reference_packages.py`: catalog
   - `models.py`: outputs
   - `inputs.py`: input types
 - **Entry points:**
@@ -56,7 +56,7 @@ Either an `inputs.VerificationResult`, or a mapping with the same shape:
 ```
 
 - `exists` and `registry_metadata` are accepted but not used for scoring.
-- `status` values with defined behaviour: `verified`, `not_found`, `registry_error`, `unsupported_ecosystem`, `invalid_input`. Any other value is treated as invalid.
+- `status` values with defined behavior: `verified`, `not_found`, `registry_error`, `unsupported_ecosystem`, `invalid_input`. Any other value is treated as invalid.
 - If the top-level input is malformed (no string `project_id` or no list `dependencies`), the result is `{"project_id": "", "dependencies": []}`.
 
 ### Scoring (v1 policy)
@@ -70,12 +70,12 @@ Either an `inputs.VerificationResult`, or a mapping with the same shape:
 
 **Similarity.**
 - Computed only for `not_found`, using normalized Levenshtein: `1 - distance / max(len)`, case-insensitive.
-- Compared against the same-ecosystem reference catalogue; the best match is used.
+- Compared against the same-ecosystem reference catalog; the best match is used.
 - Weights: ≥ 0.90 adds 40 (`name_similarity`, strong); ≥ 0.80 adds 20 (moderate); otherwise no signal.
 
 **Levels.** Score ≤ 19 is low, ≤ 49 medium, ≤ 74 high, otherwise critical.
 
-**Catalogue.** pypi: requests, numpy, pandas, flask. npm: express, axios, react.
+**Catalog.** pypi: requests, numpy, pandas, flask. npm: express, axios, react.
 
 **Policy.** Overridable per call via `RiskPolicy` and `reference_packages`. The defaults above are the v1 baseline and are pinned by tests.
 
@@ -95,7 +95,7 @@ Either an `inputs.VerificationResult`, or a mapping with the same shape:
 - **Only `not_found` packages can score above 0.** Malicious or typosquatted packages that still exist in a registry score 0 / low.
   - On 132 confirmed typosquats (Ecosyste.ms PyPI + npm), every flagged case was a not-found case. Source: `research/datasets/extracted/v1/data/manifests/eval_run_2026-11-12T182055+0000.json`.
   - That run used current registry lookups.
-- **The reference catalogue is tiny and was chosen for the legacy pilot projects.** Similarity detection covers only those 7 names. This is a dataset-dependent limitation of the baseline.
+- **The reference catalog is tiny and was chosen for the legacy pilot projects.** Similarity detection covers only those 7 names. This is a dataset-dependent limitation of the baseline.
 - **The weights and cutoffs are a project-defined experimental policy, not a security standard.**
 
 ---
@@ -157,14 +157,14 @@ Rules that apply to every contract:
 - **Run failures (stage `agent2`):** `a2.mode.{client_missing,client_mismatch,live_with_cutoff}`, `a2.snapshot.unusable_file`, `a2.evidence.store_missing`, `evidence_store.{table_missing,manifest_invalid,hash_mismatch,size_mismatch,invalid_record,count_mismatch,unreadable,duplicate_evidence_id}`.
 - **Cut-off:** `evidence_cutoff` set means a held-out run: evidence published on or after the cut-off date and undated evidence are excluded (counts reported); live lookups are refused; snapshot versions are limited to those uploaded before the cut-off and `latest_version` is withheld. A status from a snapshot taken after the cut-off (reason `a2.cutoff.snapshot_after_cutoff`) shows the state at retrieval time; Agent 3 must not treat such a `not_found` or `security_placeholder` as known at the cut-off. Excluded evidence IDs are listed in the reasons' `inputs.excluded_ids`. Without a cut-off, undated evidence is included and flagged.
 - **Snapshot format** (`registry_snapshot/1`, one JSON file per lookup): `format`, `ecosystem`, `name`, `retrieved_at` (timezone-aware), `http_status` (or `null` with `error`), and `body` (JSON) or `body_raw` (text, for recorded malformed answers); optional `url`.
-- **Evidence-store record (`pipeline/0.2`, D-054):** `RegistryResult.evidence_store` lists every allow-listed table with loaded flag, record count, SHA-256, schema/adapter/source versions, licences and undated count.
-- **Live use:** first live check `RUN-001` (`docs/research/RUN_LOG.md`, 16 lookups): statuses as expected. PyPI returns 404 for removed malicious packages, so `not_found` alone never means nonexistent. A snapshot folder may contain `RUN_RECORD.json` (skipped when loading).
+- **Evidence-store record (`pipeline/0.2`, D-054):** `RegistryResult.evidence_store` lists every allow-listed table with loaded flag, record count, SHA-256, schema/adapter/source versions, licenses and undated count.
+- **Live use:** first live check (16 lookups): statuses as expected. PyPI returns 404 for removed malicious packages, so `not_found` alone never means nonexistent. A snapshot folder may contain `RUN_RECORD.json` (skipped when loading).
 
 ### Agent 3: risk findings (implemented, D-055)
 
 - **Code:** `src/multi_agentic_security/agents/agent3_risk/` (stage `agent3/0.1`, findings `agent3_v2/0.1`): `assess.py`, `versions.py`, `similarity_v2.py`, `v1_adapter.py` (D-055 to D-058). The npm range grammar is in the neutral module `src/multi_agentic_security/versioning/npm_semver.py`, shared with Agent 5 (D-058). Output `contracts.pipeline.RiskResult`.
 - **Entry point:** `assess(extraction, registry, *, evidence_store, clock=...)`. The cut-off is taken from `registry.evidence_cutoff`.
-- **Per dependency:** `baseline_v1` (frozen v1 score, unchanged, labelled `agent3/v1`), `findings` (v2, one per family, no combined score), `reference_package` (typosquat target or the single similar popular name), `reasons` (first `a3.v1.baseline`, last `a3.summary`).
+- **Per dependency:** `baseline_v1` (frozen v1 score, unchanged, labeled `agent3/v1`), `findings` (v2, one per family, no combined score), `reference_package` (typosquat target or the single similar popular name), `reasons` (first `a3.v1.baseline`, last `a3.summary`).
 - **v1 status map:** `found`/`security_placeholder` -> `verified`; `not_found` -> `not_found`; `lookup_error`/`invalid_response` -> `registry_error`; `not_checked` -> `unsupported_ecosystem` when Agent 2 said so, else `registry_error`; unresolved -> no name (v1 returns `invalid_input`).
 - **Findings:** `malicious_reported`, `compromised_version`, `withdrawn_only`, `vulnerable` (detail `advisories`, `fixed_in_stated`, `fixed_in_released`, `fixed_in_note`), `typosquat_listed`, `nonexistent` (registry `not_found`, evidence searched in a complete, matching store, no record of any family names it, not a post-cut-off snapshot), `registry_security_hold` (`pipeline/0.2`), `name_similar_to_popular` (edit distance 1 to a popular-list name known before the cut-off), `unknown`, `no_evidence` (not a safety statement). Version-scoped findings carry `detail.applicability`: `all_versions`, `affected`, `likely_affected`, `possible`, `undetermined`; records that only cover other allowed versions (`allowed_not_resolved`), a reported release that the constraint allows but that is no longer in the registry when no cut-off is set (`removed_from_registry`, D-057), or versions the constraint excludes (`not_affected`) give a reason, not a finding. `withdrawn_only` is version-aware too (D-057). Under a cut-off, when today's yanked list would change the installed version and the two choices disagree about a record, the applicability is `undetermined` (D-058).
 - **Reason rule IDs:** `a3.v1.baseline`, `a3.summary`, `a3.malicious.whole_package.<applicability>`, `a3.malicious.version.<applicability>`, `a3.<family>.installed_version_not_affected`, `a3.<family>.reported_release_removed`, `a3.<family>.other_versions_only` (also for `withdrawn`), `a3.vulnerable.<applicability>`, `a3.withdrawn.{only,with_malicious}`, `a3.typosquat.listed`, `a3.nonexistent.{registry_not_found,published_before,evidence_not_checked,not_historical}`, `a3.cutoff.no_version_before_cutoff`, `a3.version.pin_not_in_registry`, `a3.evidence.incomplete`, `a3.registry.{security_hold,security_hold_not_historical}`, `a3.similarity.{edit_distance_1,no_list,not_checked}`, `a3.unknown.{unresolved,registry}`, `a3.evidence.not_used`, `a3.no_evidence`.
@@ -221,7 +221,7 @@ Rules that apply to every contract:
   - Typosquat target names in the evidence are not validated as package names (D-063 k).
   - The "replace" branch of the nonexistent rule is inactive (no approved pair source).
   - Upgrade targets ignore other constraints of the project; the semver distance and constraint compatibility are reported by Agent 5 (D-036).
-  - Targets in held-out runs need recorded registry lookups (`RUN_LOG.md` PLAN-001).
+  - Targets in held-out runs need recorded registry lookups.
 
 ### Agent 5: independent verification (implemented, D-059 to D-061)
 
@@ -245,4 +245,4 @@ Rules that apply to every contract:
 - **Run record:** `RUN_RECORD.json` next to the stage files (`extract.json`, `registry.json`, `risk.json`, `recommend.json`, `verify.json`, `report.json`) with versions, configuration, evidence-store fingerprint, cost counters and file hashes.
 - **Cost control:** `BudgetedLLMClient` and `CachingLLMClient`. **Snapshots:** `MultiSnapshotClient`.
 
-The evaluation scorer is not an agent and has no pipeline contract (D-067): `src/multi_agentic_security/evaluation/` holds the independent scorer (`score(case, recommendation, ScoreContext) -> Score`; no agent import), `metrics.aggregate` (conditions C1-C5 per family), `stats` (Wilson, grouped bootstrap, exact McNemar, Holm, kappa, non-inferiority), `cases` (case schema, deterministic grouped split, D-044 pin rule), `harness.run_evaluation` and `budget.plan_llm_calls`. See `SYSTEM_ARCHITECTURE.md` §4 and `RUN_LOG.md` PLAN-002. After the independent review (D-071): the scorer refuses a non-snapshot registry client and a timezone-naive cut-off, resolves an unpinned dependency inside its declared specifier, treats unreadable or missing version data as a state (never as nonexistent), requires a `fixed_in` version to be a real, unyanked release before the cut-off, and treats a cited record published after the cut-off as unsupported. `metrics.delivered_unsafe_outcome` is the outcome for McNemar between a verifier-off and a verifier-on condition; `paired_binary` reports pairs it drops; a verifier condition without a verdict is an error. `stats.bootstrap_ci` gives no interval below `min_groups` groups; `paired_diff_ci_by_key` pairs by case ID. `cases.verify_splits` recomputes group connectivity and, with `check_seed=True`, compares against `split_three_way`; `mark_eval_only` also checks expected targets. The default split fractions are 70 / 15 / 15 (D-072). Scorer 0.2 (D-075): a `replace` naming the dependency's own package is scored as `keep` (no version) or on its version, is marked `action_valid: false` and is never acceptable.
+The evaluation scorer is not an agent and has no pipeline contract (D-067): `src/multi_agentic_security/evaluation/` holds the independent scorer (`score(case, recommendation, ScoreContext) -> Score`; no agent import), `metrics.aggregate` (conditions C1-C5 per family), `stats` (Wilson, grouped bootstrap, exact McNemar, Holm, kappa, non-inferiority), `cases` (case schema, deterministic grouped split, D-044 pin rule), `harness.run_evaluation` and `budget.plan_llm_calls`. See `SYSTEM_ARCHITECTURE.md` §4. After the independent review (D-071): the scorer refuses a non-snapshot registry client and a timezone-naive cut-off, resolves an unpinned dependency inside its declared specifier, treats unreadable or missing version data as a state (never as nonexistent), requires a `fixed_in` version to be a real, unyanked release before the cut-off, and treats a cited record published after the cut-off as unsupported. `metrics.delivered_unsafe_outcome` is the outcome for McNemar between a verifier-off and a verifier-on condition; `paired_binary` reports pairs it drops; a verifier condition without a verdict is an error. `stats.bootstrap_ci` gives no interval below `min_groups` groups; `paired_diff_ci_by_key` pairs by case ID. `cases.verify_splits` recomputes group connectivity and, with `check_seed=True`, compares against `split_three_way`; `mark_eval_only` also checks expected targets. The default split fractions are 70 / 15 / 15 (D-072). Scorer 0.2 (D-075): a `replace` naming the dependency's own package is scored as `keep` (no version) or on its version, is marked `action_valid: false` and is never acceptable.

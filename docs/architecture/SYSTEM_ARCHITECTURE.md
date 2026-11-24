@@ -2,7 +2,7 @@
 
 Status 2026-11-13: **approved as the design baseline (D-025), with the adjustments in section 8 (D-030 to D-042).** No code exists for any of this except the frozen Agent 3 v1 baseline and the package skeleton. Schemas are in `AGENT_CONTRACTS.md`.
 
-The architecture is derived from the research questions (`docs/research/RESEARCH_QUESTIONS.md`), not the other way round. Each agent exists because an experiment needs to switch it, replace it or measure it.
+The architecture is derived from the research questions (`docs/research/EVALUATION_PROTOCOL.md`), not the other way round. Each agent exists because an experiment needs to switch it, replace it or measure it.
 
 ## 1. Design principles
 
@@ -50,7 +50,7 @@ The evidence store is built offline from the normalized sources with a recorded 
 
 | Item | Proposal |
 |---|---|
-| Responsibility | Parse manifest files into dependency records. No network, no judgement. |
+| Responsibility | Parse manifest files into dependency records. No network, no judgment. |
 | Inputs | Paths to `requirements.txt`, `pyproject.toml`, `Pipfile`, `package.json`. Lockfiles are a later extension. |
 | Outputs | One record per declared dependency: ecosystem, raw name, normalized name (PEP 503 for PyPI, lower-case for npm), version constraint, source file and line, dependency group. |
 | Evidence sources | None. |
@@ -63,7 +63,7 @@ The evidence store is built offline from the normalized sources with a recorded 
 
 | Item | Proposal |
 |---|---|
-| Responsibility | For each dependency, gather evidence records. It reports what sources say and makes no risk judgement. |
+| Responsibility | For each dependency, gather evidence records. It reports what sources say and makes no risk judgment. |
 | Inputs | Dependency records; evidence cut-off date; registry mode (`live`, `snapshot`, `off`). |
 | Outputs | Evidence records grouped by family: `registry_state`, `malicious_report`, `compromised_version`, `withdrawn_report`, `typosquat_pair`, `vulnerability_advisory`. Each has an ID, source, source version, source record ID, version scope, publication date and retrieval time. |
 | Evidence sources | Local store built from OpenSSF, DataDog manifests, OSV (GHSA, PYSEC), Ecosyste.ms and YCTT pairs. Registry metadata from PyPI and npm when the owner approves lookups. OSV MAL records are linked to OpenSSF as the same report, not counted twice. |
@@ -77,8 +77,8 @@ The evidence store is built offline from the normalized sources with a recorded 
 | Item | Proposal |
 |---|---|
 | Responsibility | Turn evidence into findings. |
-| v1 baseline | **Frozen** (`src/multi_agentic_security/agents/agent3_risk/baseline_v1/`, D-004): weights 50/20/40, thresholds 0.80/0.90, cut-offs 19/49/74, normalized Levenshtein, 7-name catalogue. Used unchanged as condition C0. An adapter maps Agent 2's registry state to v1's `status` values; the adapter lives outside the v1 package. |
-| v2 (proposed) | A separately versioned implementation, to be recorded in `DECISIONS.md` before any code is written. It outputs one finding per family present (`nonexistent`, `typosquat_listed`, `name_similar_to_popular`, `malicious_reported`, `compromised_version`, `vulnerable`, `withdrawn_only`, `no_evidence`), each with its evidence IDs. No combined score. Name similarity against a documented popular-package list is a separate, weaker finding than a listed typosquat pair. |
+| v1 baseline | **Frozen** (`src/multi_agentic_security/agents/agent3_risk/baseline_v1/`, D-004): weights 50/20/40, thresholds 0.80/0.90, cut-offs 19/49/74, normalized Levenshtein, 7-name catalog. Used unchanged as condition C0. An adapter maps Agent 2's registry state to v1's `status` values; the adapter lives outside the v1 package. |
+| v2 (proposed) | A separately versioned implementation. It outputs one finding per family present (`nonexistent`, `typosquat_listed`, `name_similar_to_popular`, `malicious_reported`, `compromised_version`, `vulnerable`, `withdrawn_only`, `no_evidence`), each with its evidence IDs. No combined score. Name similarity against a documented popular-package list is a separate, weaker finding than a listed typosquat pair. |
 | Inputs | Agent 2 evidence records. |
 | Outputs | v1: its existing `RiskResult`. v2: findings per dependency. |
 | Failure conditions | Missing or errored evidence yields `unknown`, never `no_evidence`. |
@@ -96,7 +96,7 @@ The evidence store is built offline from the normalized sources with a recorded 
 | Outputs | Action (`remove`, `replace`, `upgrade`, `keep`, `abstain`), optional target package and version, and structured claims that each cite evidence IDs. The raw LLM response is stored. |
 | Evidence sources | Only what Agent 2 supplied. The LLM has no tools and no network. |
 | Failure conditions | `llm_error`, `llm_timeout`, `schema_violation` (after a bounded number of retries, recorded), `refusal`. None is converted to a default action. |
-| Dependencies | Agents 2 and 3; an LLM provider chosen by the owner, with the model version pinned. No fine-tuning. |
+| Dependencies | Agents 2 and 3; an LLM provider with the model version pinned. No fine-tuning. |
 | Tests | R0 rule tests; schema validation; prompt-construction tests; LLM calls replaced by recorded responses in tests. |
 | Research metrics | Unsafe recommendation rate, unsupported claim rate, citation precision and recall, coverage, target agreement, cost (RQ1–RQ3). |
 
@@ -122,10 +122,10 @@ The research questions need a component that the five agents must not contain: t
 
 | Item | Proposal |
 |---|---|
-| Responsibility | Score recommendations and verdicts against the **full** evidence, including records published after the run's cut-off. Compute the metrics in `RESEARCH_QUESTIONS.md` §10. |
+| Responsibility | Score recommendations and verdicts against the **full** evidence, including records published after the run's cut-off. Compute the metrics in `EVALUATION_PROTOCOL.md`. |
 | Separation | The agents never see post-cut-off evidence; the scorer does. The scorer is not called by any agent. |
 | Independence | Its checks must not reuse Agent 5's code path untested: a shared bug would hide itself. Either a separate implementation or a shared one covered by independent hand-checked fixtures. |
-| Registry | In held-out experiments the scorer and Agent 5 must not use a live existence check for the target (it leaks later takedowns; `RESEARCH_QUESTIONS.md` §6). |
+| Registry | In held-out experiments the scorer and Agent 5 must not use a live existence check for the target (it leaks later takedowns). |
 | Outputs | Per-case scores, per-family tables, raw run records with model version, seed, cut-off and store version. |
 
 ## 5. How the architecture maps to the research questions
@@ -139,7 +139,7 @@ The research questions need a component that the five agents must not contain: t
 | RQ1: held-out scoring | Evidence `published_at` and the run's `evidence_cutoff` | The scorer was missing from the design (now §4); records with no publication date need a rule (added to the draft contract) |
 | RQ2: grounded vs ungrounded | Agent 4 `variant` | What the ungrounded variant receives was undefined; now stated, still an open choice |
 | RQ3: per family | `family` on evidence, `finding` on Agent 3 v2 output | None; depends on Agent 3 v2 being approved |
-| RQ4: v1 vs evidence lookup | Agent 3 v1 through an adapter; Agent 2 lookup | Rules for condition C0 were undefined; now stated in `RESEARCH_QUESTIONS.md` §7. A PyPI popular-package list for name similarity does not exist in the data |
+| RQ4: v1 vs evidence lookup | Agent 3 v1 through an adapter; Agent 2 lookup | Rules for condition C0 were undefined; now stated in `EVALUATION_PROTOCOL.md`. A PyPI popular-package list for name similarity does not exist in the data |
 | Actions without a target (`remove`, `keep`, `abstain`) | Agent 5 | Target checks had no "not applicable" result; added to the draft |
 
 ## 6. What is deliberately not in the architecture
@@ -154,7 +154,7 @@ The research questions need a component that the five agents must not contain: t
 | Microservices, queues, containers | One process is enough |
 | Agent-to-agent free-text chat | Agents exchange typed records only, which keeps runs reproducible |
 
-Backend API and frontend remain in the project plan (`PROJECT_BRIEF.md`) but are not part of the research design and are not specified here.
+A backend API and frontend are future work; they are not part of the research design and are not specified here.
 
 ## 7. Decisions
 

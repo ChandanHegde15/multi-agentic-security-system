@@ -1,6 +1,6 @@
 """Source adapter: OSV.dev PyPI export -> vulnerable-family evidence records.
 
-Scope (RESEARCH_METHODOLOGY.md section 3; PROBLEM_DEFINITION.md section 1):
+Scope (DATASET_CATALOG.md; DATASET_CATALOG.md):
 
 * Only advisories that are not malicious-package reports are mapped. ``MAL-``
   records republish OpenSSF Malicious Packages and belong to the malicious

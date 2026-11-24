@@ -1,4 +1,4 @@
-"""Evaluation cases and splits (RESEARCH_METHODOLOGY.md section 7.1, D-044, D-067).
+"""Evaluation cases and splits (DATASET_CATALOG.md, D-044, D-067).
 
 A ``Case`` is one dependency declaration with the family it belongs to and where its label
 came from. Cases are built from real data only (evidence records, real manifests); this
@@ -225,7 +225,7 @@ def stratified_group_sides(sizes: dict[str, int], fractions: dict = VULNERABLE_F
 
 def mark_eval_only(cases: Iterable[Case], names: Iterable[str]) -> list[Case]:
     """Force the test side for every case whose package name is in ``names`` (LibHalluBench-derived names and
-    the names it shares with the malicious and typosquat lists, FOUNDATION_REVIEW section 3)."""
+    the names it shares with the malicious and typosquat lists, the LibHalluBench leakage rule)."""
     wanted = {(e, normalize_name(e, n)) for e in ("pypi", "npm") for n in names}
 
     def hit(c: Case) -> bool:          # the case's own name or its expected target (D-071 R-10)
