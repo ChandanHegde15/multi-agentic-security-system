@@ -52,21 +52,107 @@ Details: [`docs/research/RESULTS.md`](docs/research/RESULTS.md).
 | `src/multi_agentic_security/contracts/` | Typed contracts between the agents and for evidence records |
 | `src/multi_agentic_security/datasets/`, `evidence_store/` | Source adapters and the evidence store |
 | `src/multi_agentic_security/evaluation/` | Cases, scorer, metrics, statistics, held-out runner and report |
-| `tests/` | Unit and integration tests (no network) |
+| `src/multi_agentic_security/api/` | FastAPI backend API, SQLite scan history (`runtime/scans.db`), and background orchestration |
+| `web/` | React + Vite cybersecurity web dashboard |
+| `tests/` | Unit, integration, and offline API tests (no network) |
 | `docs/architecture/` | System architecture and agent contracts |
 | `docs/datasets/DATASET_CATALOG.md` | Data sources, versions and licenses |
 | `docs/research/` | Frozen evaluation protocol, amendments, splits, held-out plans and freeze records, results |
 | `docs/paper/` | The paper and the literature review (IEEE format, LaTeX) |
 
+## Run the web interface
+
+### Technology stack & prerequisites
+
+- **Backend:** Python >= 3.13, FastAPI, Uvicorn, LangGraph, Pydantic, SQLite (scan history only under `runtime/`)
+- **Frontend:** Node.js LTS (v20+), npm, React, Vite
+- **Optional LLM backends (Agent 4):** Rule-based mode (`R0`) requires no API key or model. For LLM modes (`LLM-G`, `LLM-U`), configure either Groq API (`AGENT4_GROQ_API_KEY1` + `AGENT4_GROQ_MODEL`) or local Ollama (`AGENT4_OLLAMA_MODEL`).
+
+### Web architecture
+
+```mermaid
+flowchart LR
+    UI["React + Vite Dashboard<br/>(web/)"] -->|"/api/scans, /api/health, /export"| API["FastAPI Backend<br/>(api/app.py)"]
+    API -->|"LangGraph stream"| PIPE["5-Agent Pipeline<br/>(pipeline/graph.py)"]
+    API <-->|"Scan history"| DB[("SQLite<br/>runtime/scans.db")]
+    PIPE -->|"Read-only"| STORE[("Evidence Store<br/>fixtures or research/datasets")]
+```
+
+### Installation (Windows PowerShell)
+
+1. **Create and activate a Python virtual environment, then install dependencies:**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev,web]"
+```
+
+2. **Install frontend dependencies:**
+
+```powershell
+cd web
+npm install
+cd ..
+```
+
+3. **Configure optional environment variables (only needed for LLM-G / LLM-U):**
+   Per project rule D-064, no `.env.example` file is kept in the repository; all supported variable names are documented in [`docs/architecture/AGENT_CONTRACTS.md`](docs/architecture/AGENT_CONTRACTS.md). Create a git-ignored `.env` file in the repository root if using Groq or Ollama:
+
+```env
+AGENT4_GROQ_MODEL=llama-3.1-8b-instant
+AGENT4_GROQ_API_KEY1=your_groq_api_key_here
+AGENT4_LLM_TIMEOUT_SECONDS=60
+AGENT4_LLM_MAX_OUTPUT_TOKENS=1024
+```
+
+### Start the backend and frontend
+
+Open two PowerShell terminals in the repository root:
+
+**Terminal 1 — FastAPI backend (`http://127.0.0.1:8000`):**
+
+```powershell
+$env:PYTHONDONTWRITEBYTECODE = "1"
+.\.venv\Scripts\python.exe -m uvicorn multi_agentic_security.api.app:app --host 127.0.0.1 --port 8000
+```
+
+**Terminal 2 — React + Vite frontend (`http://127.0.0.1:5173`):**
+
+```powershell
+cd web
+npm run dev -- --host 127.0.0.1 --port 5173
+```
+
+### Example workflow
+
+1. Open `http://127.0.0.1:5173` in your browser and confirm the header displays **API Online**.
+2. Upload `requirements.txt`, `package.json`, `package-lock.json`, code files, a `.zip` archive, paste `$ pip install ...` commands, enter a public GitHub repository URL, or click **Load Demo Sample**.
+3. Choose the Agent 4 recommender (`R0`, `LLM-G`, or `LLM-U`) and Agent 2 registry mode (`snapshot`, `live`, or `off`), then click **Start Dependency Analysis**.
+4. Watch real-time stage progress across Agents 1–5, click any package row to inspect deterministic evidence and Agent 5's 10 verification checks alongside Agent 4's recommendation, and export the final JSON report.
+
+### Known limitations
+
+- **Parsed manifests:** Agent 1 parses `requirements*.txt`, `*.in`, `package.json`, `package-lock.json`, `npm-shrinkwrap.json`, Python/JS/TS imports, shell scripts, Dockerfiles, Markdown code blocks, ZIP archives, and public GitHub links. `pyproject.toml` and `Pipfile` are reported explicitly as `a1.source.unsupported_manifest`.
+- **Evidence store:** Without the separate 106 MB normalized dataset under `research/datasets/verified/normalized/v1/`, the web server defaults to the offline test fixture evidence store (`tests/fixtures/agent2/evidence/v1/`).
+- **Missing vs. malicious:** Packages absent from a registry (`not_found`) are never automatically labeled confirmed malicious without malware/typosquat evidence.
+
 ## Running the tests
 
-Python 3.13:
+Python 3.13 (all unit, integration, and offline API tests):
 
-```
-PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider
+```powershell
+$env:PYTHONDONTWRITEBYTECODE = "1"
+.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp=.pytest_tmp
 ```
 
-1,321 tests pass without network access.
+Frontend lint and production build:
+
+```powershell
+cd web
+npm run lint
+npm run build
+```
 
 ## Data
 
