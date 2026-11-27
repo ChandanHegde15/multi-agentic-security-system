@@ -23,7 +23,7 @@ flowchart LR
 
 | Agent | Role | Language model | Code |
 |---|---|---|---|
-| 1 Dependency Extraction | Parses `requirements.txt`, `pyproject.toml`, `Pipfile`, `package.json`, code imports and install commands | no | `agent1_ingestion` |
+| 1 Dependency Extraction | Parses `requirements.txt`, `package.json`, `package-lock.json`, code imports and install commands; reports `pyproject.toml`, `Pipfile` and other manifests it does not read yet | no | `agent1_ingestion` |
 | 2 Evidence Collection | Checks each package against recorded PyPI and npm metadata and looks up its evidence records, filtered by a cut-off date | no | `agent2_registry` |
 | 3 Risk Assessment | One finding per label family, version-aware, with evidence IDs | no | `agent3_risk` |
 | 4 Recommendation and Remediation | Rules (R0), or a model given only the finding names (LLM-U) or the evidence records too (LLM-G) | LLM-U, LLM-G | `agent4_recommendation` |
@@ -66,7 +66,7 @@ Details: [`docs/research/RESULTS.md`](docs/research/RESULTS.md).
 
 - **Backend:** Python >= 3.13, FastAPI, Uvicorn, LangGraph, Pydantic, SQLite (scan history only under `runtime/`)
 - **Frontend:** Node.js LTS (v20+), npm, React, Vite
-- **Optional LLM backends (Agent 4):** Rule-based mode (`R0`) requires no API key or model. For LLM modes (`LLM-G`, `LLM-U`), configure either Groq API (`AGENT4_GROQ_API_KEY1` + `AGENT4_GROQ_MODEL`) or local Ollama (`AGENT4_OLLAMA_MODEL`).
+- **Agent 4 options:** `R0` (rules) needs nothing. `LLM-G` (grounded) and `LLM-U` (ungrounded) run the local model `qwen2.5:7b` through [Ollama](https://ollama.com) on the same computer: no API key, no `.env` file and no internet access are used.
 
 ### Web architecture
 
@@ -96,15 +96,13 @@ npm install
 cd ..
 ```
 
-3. **Configure optional environment variables (only needed for LLM-G / LLM-U):**
-   Per project rule D-064, no `.env.example` file is kept in the repository; all supported variable names are documented in [`docs/architecture/AGENT_CONTRACTS.md`](docs/architecture/AGENT_CONTRACTS.md). Create a git-ignored `.env` file in the repository root if using Groq or Ollama:
+3. **Optional, only for LLM-G / LLM-U:** install [Ollama](https://ollama.com) and download the model once:
 
-```env
-AGENT4_GROQ_MODEL=llama-3.1-8b-instant
-AGENT4_GROQ_API_KEY1=your_groq_api_key_here
-AGENT4_LLM_TIMEOUT_SECONDS=60
-AGENT4_LLM_MAX_OUTPUT_TOKENS=1024
+```powershell
+ollama pull qwen2.5:7b
 ```
+
+   Nothing else is configured. The dashboard shows whether the local model is ready; if it is not, the two LLM options say what to do and `R0` keeps working. To try another local model, set it in the terminal before starting the backend (optional): `$env:AGENT4_OLLAMA_MODEL = "llama3.2:3b"`.
 
 ### Start the backend and frontend
 

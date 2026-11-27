@@ -10,12 +10,16 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
-from multi_agentic_security.agents.agent1_ingestion import FetchResponse
-from multi_agentic_security.agents.agent4_recommendation import LLMResponse
-from multi_agentic_security.api import ScanService, create_app
-from multi_agentic_security.evidence_store import EvidenceStore
+pytest.importorskip("fastapi", reason="web extras not installed: pip install -e .[dev,web]")
+pytest.importorskip("httpx", reason="web extras not installed: pip install -e .[dev,web]")
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from multi_agentic_security.agents.agent1_ingestion import FetchResponse  # noqa: E402
+from multi_agentic_security.agents.agent4_recommendation import LLMResponse # noqa: E402
+from multi_agentic_security.api import ScanService, create_app # noqa: E402
+from multi_agentic_security.evidence_store import EvidenceStore # noqa: E402
 
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures" / "agent2"
@@ -44,7 +48,6 @@ def client(tmp_path: Path):
         evidence_store=store,
         evidence_source="fixture",
         snapshot_dir=FIX / "registry_snapshot",
-        env_path=tmp_path / "nonexistent.env",
     )
     return TestClient(create_app(svc))
 
@@ -172,7 +175,6 @@ def test_git_url_scan_with_recorded_fetcher(tmp_path: Path):
         evidence_store=EvidenceStore.load(FIX / "evidence" / "v1"),
         snapshot_dir=FIX / "registry_snapshot",
         git_fetcher_factory=FakeFetcher,
-        env_path=tmp_path / "none.env",
     )
     c = TestClient(create_app(svc))
     res = c.post(
@@ -197,7 +199,6 @@ def test_llm_variant_with_fake_client_and_verifier_rejection(tmp_path: Path):
         evidence_store=EvidenceStore.load(FIX / "evidence" / "v1"),
         snapshot_dir=FIX / "registry_snapshot",
         llm_client_factory=lambda _v: UnsafeFakeLLM(),
-        env_path=tmp_path / "none.env",
     )
     c = TestClient(create_app(svc))
     pkg_json = json.dumps({"dependencies": {"strign-width": "1.0.0"}}).encode("utf-8")
@@ -266,3 +267,111 @@ def test_invalid_inputs_and_errors(client: TestClient):
     assert r6.status_code == 200
     assert r6.json()["status"] == "done"
     assert r6.json()["report"]["summary"]["total_dependencies"] == 0
+
+
+# --------------------------------------------------------------------------- review fixes
+
+
+def test_importing_the_api_creates_no_server(tmp_path: Path):
+    """Importing the package must not build a ScanService (evidence store, runtime/scans.db, settings)."""
+    import subprocess
+    import sys
+
+    code = (
+        "import multi_agentic_security.api as api, multi_agentic_security.api.app as m; "
+        "assert m._default_app is None, 'app was created on import'; print('ok')"
+    )
+    env = {**__import__("os").environ, "PYTHONPATH": __import__("os").pathsep.join(sys.path)}
+    out = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "ok"
+
+
+def test_no_secrets_file_is_read_and_api_keys_are_ignored(tmp_path: Path, monkeypatch):
+    """The web layer never opens a secrets file and never uses hosted-model keys, even when they are set."""
+    monkeypatch.delenv("AGENT4_OLLAMA_MODEL", raising=False)
+    monkeypatch.setenv("AGENT4_GROQ_API_KEY1", "dummy-not-a-key")
+    monkeypatch.setenv("AGENT4_GROQ_MODEL", "llama-3.1-8b-instant")
+    opened: list[str] = []
+    real_read_text, real_open = Path.read_text, Path.open
+
+    def spy_read_text(self, *a, **k):
+        opened.append(self.name)
+        return real_read_text(self, *a, **k)
+
+    def spy_open(self, *a, **k):
+        opened.append(self.name)
+        return real_open(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", spy_read_text)
+    monkeypatch.setattr(Path, "open", spy_open)
+    svc = ScanService(
+        runtime_dir=tmp_path / "runtime",
+        evidence_store=EvidenceStore.load(FIX / "evidence" / "v1"),
+        snapshot_dir=FIX / "registry_snapshot",
+        ollama_probe=lambda: None,
+    )
+    c = TestClient(create_app(svc))
+    llm = c.get("/api/health").json()["llm"]
+    res = c.post("/api/scans", data={"text": "pip install requests", "variant": "LLM-G"})
+    assert not any(".env" in name for name in opened), opened
+    assert not any("groq" in key.lower() for key in llm)
+    assert res.status_code == 400
+
+
+def _local_service(tmp_path: Path, installed):
+    return ScanService(
+        runtime_dir=tmp_path / "runtime",
+        evidence_store=EvidenceStore.load(FIX / "evidence" / "v1"),
+        snapshot_dir=FIX / "registry_snapshot",
+        ollama_probe=lambda: installed,
+    )
+
+
+def test_llm_modes_use_the_built_in_local_model_without_any_setting(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("AGENT4_OLLAMA_MODEL", raising=False)
+    llm = TestClient(create_app(_local_service(tmp_path, ["qwen2.5:7b", "llama3.2:3b"]))).get("/api/health").json()["llm"]
+    assert llm == {"rules_available": True, "local_model": "qwen2.5:7b", "ollama_running": True,
+                   "local_model_installed": True, "local_model_ready": True}
+    llm_client, _ = _local_service(tmp_path, ["qwen2.5:7b"])._build_llm("LLM-U")
+    assert llm_client is not None   # built without calling the model; no key, no file
+
+
+@pytest.mark.parametrize("installed, expected", [(None, "Ollama is not running"), ([], "ollama pull qwen2.5:7b")])
+def test_llm_modes_explain_what_to_do_when_the_local_model_is_missing(tmp_path: Path, monkeypatch, installed, expected):
+    monkeypatch.delenv("AGENT4_OLLAMA_MODEL", raising=False)
+    c = TestClient(create_app(_local_service(tmp_path, installed)))
+    assert c.get("/api/health").json()["llm"]["local_model_ready"] is False
+    for variant in ("LLM-G", "LLM-U"):
+        res = c.post("/api/scans", data={"text": "$ pip install requests", "variant": variant})
+        assert res.status_code == 400
+        assert expected in res.json()["detail"]
+    r0 = c.post("/api/scans", data={"text": "$ pip install requests", "variant": "R0", "registry_mode": "off", "wait": "true"})
+    assert r0.status_code == 200 and r0.json()["status"] == "done"   # R0 never needs the model
+
+
+def test_another_local_model_can_be_chosen_with_an_environment_variable(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("AGENT4_OLLAMA_MODEL", "llama3.2:3b")
+    llm = TestClient(create_app(_local_service(tmp_path, ["llama3.2:3b"]))).get("/api/health").json()["llm"]
+    assert llm["local_model"] == "llama3.2:3b" and llm["local_model_ready"] is True
+
+
+def test_local_probe_only_contacts_this_computer():
+    from multi_agentic_security.api.service import OLLAMA_LOCAL_URL, probe_local_ollama
+
+    assert OLLAMA_LOCAL_URL.startswith("http://127.0.0.1:")
+    assert probe_local_ollama() is None   # the offline fixture refuses every connection: reported as not running
+
+
+@pytest.mark.parametrize("name", ["pyproject.toml", "Pipfile"])
+def test_unparsed_manifest_is_reported_not_refused(client: TestClient, name: str):
+    res = client.post(
+        "/api/scans",
+        data={"variant": "R0", "registry_mode": "snapshot", "wait": "true"},
+        files=[("files", (name, b"[project]\ndependencies = []\n", "text/plain"))],
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "done"
+    codes = [f["code"] for f in body["report"]["extraction"]["failures"]]
+    assert "a1.source.unsupported_manifest" in codes

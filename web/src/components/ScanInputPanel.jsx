@@ -33,7 +33,7 @@ export default function ScanInputPanel({ health, onSubmit, submitting }) {
   const [error, setError] = useState('');
   const fileInputRef = useRef(null);
 
-  const llmConfigured = Boolean(health?.llm?.groq_configured || health?.llm?.ollama_model);
+  const llmConfigured = Boolean(health?.llm?.local_model_ready);
 
   function addFiles(incoming) {
     setError('');
@@ -118,7 +118,7 @@ export default function ScanInputPanel({ health, onSubmit, submitting }) {
       return;
     }
     if (variant !== 'R0' && !llmConfigured) {
-      setError(`Variant ${variant} needs a Groq API key/model or Ollama model in .env. Switch to R0 (Deterministic Rules) or configure .env.`);
+      setError(`Variant ${variant} runs a local model on this computer. Start Ollama and run "ollama pull ${health?.llm?.local_model || 'qwen2.5:7b'}" once, or switch to R0 (Deterministic Rules).`);
       return;
     }
 
@@ -314,10 +314,10 @@ export default function ScanInputPanel({ health, onSubmit, submitting }) {
             >
               <option value="R0">R0 — Deterministic Rules (Offline)</option>
               <option value="LLM-G">
-                LLM-G — Grounded LLM {llmConfigured ? '(Ready)' : '(Needs .env Key)'}
+                LLM-G — Grounded LLM {llmConfigured ? '(Local, Ready)' : '(Start Ollama)'}
               </option>
               <option value="LLM-U">
-                LLM-U — Ungrounded LLM {llmConfigured ? '(Ready)' : '(Needs .env Key)'}
+                LLM-U — Ungrounded LLM {llmConfigured ? '(Local, Ready)' : '(Start Ollama)'}
               </option>
             </select>
           </div>

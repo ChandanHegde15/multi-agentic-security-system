@@ -21,6 +21,7 @@
 7. [Test Summary](#7-test-summary)
 8. [Known Limitations](#8-known-limitations)
 9. [Conclusion](#9-conclusion)
+10. [Addendum: Review Fixes](#10-addendum-review-fixes)
 
 ---
 
@@ -48,7 +49,7 @@ This report documents the final validation activities carried out for Phases 6 a
 | E2E integration | Automated HTTP tests through Vite proxy; manual browser observation |
 | Persistence | SQLite scan records; dashboard statistics aggregation |
 
-The scope explicitly excludes live network calls to external registries (PyPI, npm) and live calls to language-model inference providers (Groq, Ollama). All such dependencies are replaced by fixture data, monkeypatched stubs, or offline evidence stores during automated testing.
+The scope explicitly excludes live network calls to external registries (PyPI, npm) and live calls to a local language model (Ollama). All such dependencies are replaced by fixture data, monkeypatched stubs, or offline evidence stores during automated testing.
 
 ### 1.3 Project Overview
 
@@ -58,15 +59,15 @@ The system counters this threat with a five-agent LangGraph pipeline:
 
 | Agent | Responsibility |
 |---|---|
-| **Agent 1 — Intake** | Parses manifests (`requirements.txt`, `package.json`), pasted code snippets, ZIP archives, and Git repository fetches to extract individual package–version pairs. |
-| **Agent 2 — Registry Verifier** | Checks each package against PyPI and npm registries (or offline snapshots) to determine existence and retrieve canonical metadata. |
-| **Agent 3 — Risk Analyser** | Applies deterministic heuristics (typosquatting distance, name similarity, version pinning, download counts, age) to assign risk flags. |
-| **Agent 4 — LLM Recommender** | Optionally queries a language model to generate a natural-language recommendation for each flagged package (models: `snapshot`, `LLM-G`, `LLM-U`). |
-| **Agent 5 — Deterministic Verifier** | Acts as a gate: applies rule-based checks over Agent 3 risk flags and Agent 4 output to produce a final verdict (`safe`, `suspicious`, `replace`, `abstain`, `investigate`). |
+| **Agent 1 — Dependency Extraction** | Parses `requirements*.txt`, `package.json`, `package-lock.json`, code imports, install commands, ZIP archives and public GitHub repositories into package–version records. Manifests it does not read yet (`pyproject.toml`, `Pipfile`, ...) are reported as `a1.source.unsupported_manifest`. |
+| **Agent 2 — Evidence Collection** | Checks each package against PyPI and npm metadata (`off`, recorded `snapshot`, or `live`) and looks up its records in the read-only evidence store, optionally hiding evidence published after a cut-off date. |
+| **Agent 3 — Risk Assessment** | Deterministic, version-aware findings per label family (`malicious_reported`, `compromised_version`, `typosquat_listed`, `name_similar_to_popular`, `vulnerable`, `nonexistent`, `no_evidence`, ...) with evidence IDs, next to the frozen v1 baseline score. |
+| **Agent 4 — Recommendation and Remediation** | Recommends an action (`remove`, `replace`, `upgrade`, `downgrade`, `keep`, `investigate`, `abstain`) with cited claims, using rules (`R0`) or a local model that sees only the finding names (`LLM-U`) or also the evidence records (`LLM-G`). |
+| **Agent 5 — Verification** | Shares no code or model with Agent 4. Re-derives 10 deterministic checks over every recommendation and returns `accept`, `reject` or `abstain`. |
 
 The `web-integration` branch wraps this pipeline with:
 
-- A **FastAPI REST API** (`/api/scan`, `/api/scans`, `/api/health`) with SQLite persistence for scan history.
+- A **FastAPI REST API** (`POST /api/scans`, `GET /api/scans`, `GET /api/scans/{id}`, `GET /api/scans/{id}/export`, `GET /api/health`) with SQLite persistence for scan history.
 - A **React 19 + Vite** dashboard that provides a scan submission form, live progress polling, tabular package results, and dashboard statistics.
 
 ---
@@ -144,22 +145,20 @@ The backend test suite is organized under the `tests/` directory:
 
 ```
 tests/
-├── unit/
-│   ├── test_agent1_intake.py
-│   ├── test_agent2_registry.py
-│   ├── test_agent3_risk.py
-│   ├── test_agent4_llm.py
-│   ├── test_agent5_verifier.py
-│   ├── test_evidence_store.py
-│   ├── test_evaluation.py
-│   ├── test_range_semver.py
-│   ├── test_guardrails.py
-│   └── (additional unit modules)
+├── unit/          34 modules, for example:
+│   ├── test_agent1_intake.py, test_agent1_extraction.py, test_agent1_code.py
+│   ├── test_agent2_client.py, test_agent2_verify.py
+│   ├── test_agent3_v2.py
+│   ├── test_agent4_rules.py, test_agent4_llm.py, test_agent4_ollama.py, test_agent4_providers.py
+│   ├── test_agent5_verify.py
+│   ├── test_evidence_store.py, test_range_golden.py, test_pipeline_contracts.py
+│   └── test_eval_core.py, test_eval_splits.py, test_heldout_report.py, ...
 ├── integration/
-│   ├── test_pipeline_graph.py
+│   ├── test_agent1_to_agent2.py
 │   ├── test_agent1_to_agent3.py
 │   ├── test_agent1_to_agent5.py
 │   ├── test_agent1_to_agent5_r0.py
+│   ├── test_pipeline_graph.py
 │   ├── test_eval_harness.py
 │   └── test_heldout_runner.py
 └── api/
@@ -167,45 +166,45 @@ tests/
     └── test_api.py
 ```
 
+The frozen Agent 3 v1 baseline has its own guard tests in `src/multi_agentic_security/agents/agent3_risk/baseline_v1/tests/`.
+
 ### 3.2 Core Unit Tests
 
 The unit test modules exercise each agent and shared subsystem in isolation:
 
-- **Agent 1 (Intake):** Tests cover `requirements.txt` parsing, `package.json` parsing, pasted shell-command extraction (lines prefixed with `$ `), ZIP archive unpacking, Git URL fetching (via recorded responses), directory traversal with symlink/junction boundary enforcement, and manifest detection by MIME type.
-- **Agent 2 (Registry Verifier):** Tests cover PyPI and npm lookup in `snapshot` mode, registry miss handling (`not_found`), version normalization, and registry metadata extraction.
-- **Agent 3 (Risk Analyser):** Tests cover typosquatting Levenshtein distance scoring, `name_similar_to_popular` flag assignment, download count thresholds, version pinning flags, and package age scoring.
-- **Agent 4 (LLM Recommender):** Tests cover `snapshot` mode deterministic output, fake client injection for `LLM-G` / `LLM-U` modes, guardrail enforcement on model output, and the documented rule that `.env.example` must not exist in the repository root (D-064).
-- **Agent 5 (Verifier):** Tests cover rule-based gate logic: `replace` for confirmed typosquats with evidence, `investigate` for name-similar packages without evidence, `abstain` for packages with no data, `safe` for well-known verified packages.
-- **Evidence store:** Tests cover fixture-based loading, 18-record index, evidence record retrieval by package name and ecosystem.
-- **Versioning / semver:** Tests cover `semver.Version` parsing, range matching, npm semver semantics.
-- **Guardrails:** Tests cover content-policy checks applied to Agent 4 output.
+- **Agent 1 (Dependency Extraction):** `requirements.txt`, `package.json` and lock-file parsing, code imports, install commands in pasted text, ZIP unpacking, GitHub links (recorded responses), symlink, hardlink and junction boundaries, and reporting of manifests that are not parsed.
+- **Agent 2 (Evidence Collection):** PyPI and npm metadata in `off`, `snapshot` and `live` (fake transport) modes, `not_found` and lookup failures, and evidence lookup with a cut-off date.
+- **Agent 3 (Risk Assessment):** version-aware findings per label family, name similarity to popular packages, and the frozen v1 baseline.
+- **Agent 4 (Recommendation and Remediation):** the R0 rules, the provider-independent model interface with fake clients, prompt versions, response parsing, the Ollama adapter (fake transport) and the rule that no `.env.example` exists in the repository.
+- **Agent 5 (Verification):** the 10 checks and the `accept` / `reject` / `abstain` verdicts, independently of Agent 4.
+- **Evidence store and version ranges:** loading the 18-record fixture store, PyPI and npm range matching (golden vectors).
+- **Contracts and evaluation:** pipeline contract validation, case splits, scorer and report statistics.
 
 ### 3.3 Integration Tests
 
-The integration test modules exercise multi-agent interactions across the full LangGraph state machine:
-
-| File | Coverage |
-|---|---|
-| `test_pipeline_graph.py` | 21 tests covering full pipeline execution, budget exhaustion, caching, guardrail enforcement, checkpoint resume, snapshot conflicts, and regression tests D-092 and D-094 |
-| `test_agent1_to_agent3.py` | Intake → Registry → Risk path; exercises the first three agents end-to-end with fixture data |
-| `test_agent1_to_agent5.py` | Full five-agent pipeline in `snapshot` mode; validates final verdicts per package |
-| `test_agent1_to_agent5_r0.py` | Full pipeline with `R0` budget (zero LLM calls); confirms deterministic path without Agent 4 |
-| `test_eval_harness.py` | Evaluation harness scoring: precision, recall, F1 on a labeled fixture dataset |
-| `test_heldout_runner.py` | Held-out evaluation on packages not seen during harness construction |
+| File | Tests | Coverage |
+|---|---|---|
+| `test_agent1_to_agent2.py` | 7 | Agent 1 extraction on uploaded files, then Agent 2 |
+| `test_agent1_to_agent3.py` | 3 | Agent 1 → Agent 2 (snapshot) → Agent 3 on the fixtures |
+| `test_agent1_to_agent5.py` | 2 | Agents 1–3, hand-written recommendations, then Agent 5 |
+| `test_agent1_to_agent5_r0.py` | 2 | Agents 1–5 with the R0 rules as Agent 4 |
+| `test_pipeline_graph.py` | 23 | LangGraph orchestrator: full runs with R0 and a fake model, budget, caching, guardrails, checkpoint resume, snapshot conflicts |
+| `test_eval_harness.py` | 6 | Evaluation harness end to end on the fixtures: cases → pipeline → scorer |
+| `test_heldout_runner.py` | 27 | Held-out runner offline: freeze gate, case hashes, resume, locks |
 
 ### 3.4 Offline API Tests
 
-Seven new tests were added in `tests/api/test_api.py` using FastAPI's `TestClient` (backed by `httpx`). All external network calls — to PyPI, npm, Groq, and any OS socket — are blocked through targeted monkeypatching of `socket.create_connection`, `socket.getaddrinfo`, `http.client.HTTPConnection.connect`, and `urllib.request.urlopen`. This ensures the tests are fully reproducible without network access.
+Seven new tests were added in `tests/api/test_api.py` using FastAPI's `TestClient` (backed by `httpx`). All external network calls — to PyPI, npm, a model server, and any OS socket — are blocked through targeted monkeypatching of `socket.create_connection`, `socket.getaddrinfo`, `http.client.HTTPConnection.connect`, and `urllib.request.urlopen`. This ensures the tests are fully reproducible without network access.
 
 | Test | Description |
 |---|---|
 | `test_health_endpoint` | `GET /api/health` returns HTTP 200 with `status: ok` and evidence store metadata confirming 18 indexed records. |
-| `test_file_upload_full_pipeline_and_dashboard_stats` | Uploads a `requirements.txt` fixture file; polls `/api/scans/{id}` until all 6 pipeline stages reach `done`; confirms 7 packages analyzed; calls `/api/scans` and verifies dashboard statistics (total scans, completed, packages analyzed, verified, suspicious, not found). |
+| `test_file_upload_full_pipeline_and_dashboard_stats` | Uploads a `requirements.txt` and a `package.json` (6 packages) with `wait=true`; checks that all 6 stages are `done`, the JSON export, and the dashboard statistics from `/api/scans`. |
 | `test_async_scan_completes_via_polling` | Submits a scan and uses a polling loop to wait for `status: done`, verifying that the asynchronous task execution model works correctly through the TestClient. |
-| `test_zip_upload_and_pasted_text` | Submits a ZIP archive containing a manifest alongside a pasted code snippet with `$ pip install` prefix lines; verifies that Agent 1 correctly parses both sources and that the combined package list flows through the pipeline. |
+| `test_zip_upload_and_pasted_text` | Two separate scans: a ZIP archive containing a `requirements.txt`, and pasted text with a `$ pip install` line; each finds 1 package. |
 | `test_git_url_scan_with_recorded_fetcher` | Submits a Git URL input using a recorded HTTP fetcher fixture; verifies that Agent 1 fetches the manifest from the recorded response and that the pipeline produces results for the extracted packages. |
 | `test_llm_variant_with_fake_client_and_verifier_rejection` | Exercises the `LLM-G` model variant by injecting a fake LLM client; also exercises Agent 5's rejection gate, confirming that packages where the verifier rejects Agent 4's recommendation receive a final status of `investigate` rather than the LLM-suggested verdict. |
-| `test_invalid_inputs_and_errors` | Sends requests with no files and no pasted text; confirms HTTP 400 is returned with a descriptive `detail` message. Sends a malformed scan ID to `/api/scans/{id}`; confirms HTTP 404. |
+| `test_invalid_inputs_and_errors` | HTTP 400 for an empty submission, an unsupported file type, a `../` path, a non-GitHub URL, live mode with a cut-off, and an LLM mode without a local model; HTTP 404 for an unknown scan ID; an empty manifest finishes with 0 packages. |
 
 ### 3.5 Skipped Test
 
@@ -320,7 +319,7 @@ Vite Dev Server (port 5173)
         │
         ▼
 FastAPI Backend (port 8000)
-  - POST /api/scan      (submit scan)
+  - POST /api/scans     (submit scan)
   - GET  /api/scans     (list / stats)
   - GET  /api/scans/{id}(poll status)
   - GET  /api/health    (health check)
@@ -340,11 +339,11 @@ Seven integration checks were executed programmatically using Python's `urllib` 
 |---|---|---|---|---|
 | 1 | GET | `http://127.0.0.1:5173/` | HTTP 200, HTML document | ✅ Passed |
 | 2 | GET | `http://127.0.0.1:5173/api/health` | Proxied to FastAPI; `{"status":"ok","evidence_store":{"source":"fixture","complete":true,"records_indexed":18}}` | ✅ Passed |
-| 3 | POST (multipart) | `http://127.0.0.1:5173/api/scan` | Scan created; response contains scan ID, all 6 stages present | ✅ Passed |
+| 3 | POST (multipart) | `http://127.0.0.1:5173/api/scans` | Scan created; response contains scan ID, all 6 stages present | ✅ Passed |
 | 4 | GET (poll) | `http://127.0.0.1:5173/api/scans/{id}` | `status: done`; 7 packages analyzed | ✅ Passed |
 | 5 | GET | `http://127.0.0.1:5173/api/scans` | `total_scans ≥ 1`, `completed ≥ 1`, `packages_analyzed ≥ 7`, `verified ≥ 7`, `suspicious ≥ 2`, `not_found ≥ 2` | ✅ Passed |
 | 6 | GET | `http://127.0.0.1:5173/api/scans/{id}?format=json` | `total_dependencies: 7`; full package JSON export | ✅ Passed |
-| 7 | POST (empty) | `http://127.0.0.1:5173/api/scan` | HTTP 400; `{"detail":"Provide at least one manifest/code file..."}` | ✅ Passed |
+| 7 | POST (empty) | `http://127.0.0.1:5173/api/scans` | HTTP 400; `{"detail":"Provide at least one manifest/code file..."}` | ✅ Passed |
 
 **CORS validation:** The `access-control-allow-origin: http://127.0.0.1:5173` response header was confirmed on API responses, demonstrating that the FastAPI CORS middleware is correctly scoped to the Vite origin.
 
@@ -395,11 +394,11 @@ The database file is listed in `.gitignore` and is not committed to the reposito
 
 | Component | Testing Method | Result | Detail |
 |---|---|---|---|
-| Agent 1 — Intake | pytest unit tests | ✅ Passed | Manifest parsing, ZIP, Git fetch, junction boundary |
-| Agent 2 — Registry Verifier | pytest unit tests | ✅ Passed | PyPI/npm snapshot lookup, `not_found` handling |
-| Agent 3 — Risk Analyser | pytest unit tests | ✅ Passed | Typosquatting distance, risk flag assignment |
-| Agent 4 — LLM Recommender | pytest unit tests | ✅ Passed | Snapshot mode, fake client injection, guardrails |
-| Agent 5 — Verifier | pytest unit tests | ✅ Passed | Rule-based gate logic, verdict mapping |
+| Agent 1 — Dependency Extraction | pytest unit tests | ✅ Passed | Manifest parsing, ZIP, Git fetch, junction boundary |
+| Agent 2 — Evidence Collection | pytest unit tests | ✅ Passed | PyPI/npm snapshot lookup, `not_found` handling, evidence lookup |
+| Agent 3 — Risk Assessment | pytest unit tests | ✅ Passed | Findings per label family, name similarity, v1 baseline |
+| Agent 4 — Recommendation and Remediation | pytest unit tests | ✅ Passed | R0 rules, fake client injection, parsing, guardrails |
+| Agent 5 — Verification | pytest unit tests | ✅ Passed | 10 checks; accept, reject and abstain verdicts |
 | Multi-agent pipeline | pytest integration tests | ✅ Passed | Full pipeline, budget, caching, guardrails, D-092/D-094 |
 | FastAPI offline API | pytest TestClient (7 tests) | ✅ 7 passed | Upload, polling, ZIP, Git, LLM-G, errors |
 | **Full test suite** | **pytest** | **✅ 1,328 passed, 1 skipped** | **23.35 s execution time** |
@@ -429,9 +428,9 @@ The offline snapshot registry covers 14 fixture packages. Packages not present i
 
 Agent 1 does not currently parse `pyproject.toml` (PEP 517/518 build system tables), `Pipfile`, `conda environment.yml`, or `Cargo.toml`. Submissions using these formats are reported with the diagnostic code `a1.source.unsupported_manifest`. Support for additional manifest formats is a documented future enhancement.
 
-### 8.5 Language Model Variants Require External Services
+### 8.5 Language Model Variants Require a Local Model
 
-The `LLM-G` variant requires a valid Groq API key set via the `GROQ_API_KEY` environment variable. The `LLM-U` variant requires a locally running Ollama instance. Neither is tested in the automated test suite; both are covered by the fake-client injection test `test_llm_variant_with_fake_client_and_verifier_rejection`. Real LLM-backed analysis is a manual testing concern.
+`LLM-U` and `LLM-G` run the local model `qwen2.5:7b` through Ollama on the same computer; only the loopback address `127.0.0.1:11434` is contacted. No API key, no `.env` file and no setting are needed. If Ollama is not running or the model is not downloaded, both variants are refused with HTTP 400 and a message saying what to do, and `R0` remains available. Real model calls are not part of the automated tests; the fake-client test `test_llm_variant_with_fake_client_and_verifier_rejection` covers the path through Agent 5.
 
 ### 8.6 Production Deployment
 
@@ -454,5 +453,26 @@ SQLite-backed scan persistence has been confirmed: 6 scan records were written a
 The documented limitations (fixture evidence store scope, snapshot registry coverage, unsupported manifest formats, and external LLM service dependencies) are well-understood constraints that do not affect the correctness or integrity of the core detection pipeline. The `web-integration` branch is ready for review and merge into `main`.
 
 ---
+
+## 10. Addendum: Review Fixes
+
+A review of the branch before merging found the following, fixed on branch `web-review-fixes`. Sections 1–9 report the original measurements; the figures below are from the re-run after the fixes.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | Importing `multi_agentic_security.api` built a full `ScanService`: it loaded the evidence store and the `.env` file into the process environment and created `runtime/scans.db`, also during tests. With hosted-model keys present, `test_invalid_inputs_and_errors` failed and a scan started. | The default `app` is created only when uvicorn asks for it; the start command is unchanged. |
+| 2 | LLM modes preferred a hosted provider and needed an API key from `.env`; the Ollama setting in `.env` was ignored. | LLM modes run the built-in local model `qwen2.5:7b` through Ollama, with no setting. The web layer reads no `.env` file and no API key. `GET /api/health` reports whether the local model is ready; an LLM scan without it gets a clear HTTP 400. The default timeout for local models is 300 s, the limit used in the evaluation. |
+| 3 | `pyproject.toml` and `Pipfile` uploads were refused at the door. | They are passed to Agent 1, which reports them as `a1.source.unsupported_manifest`. |
+| 4 | Agent names, Agent 4 variants, Agent 5 verdicts, endpoint paths and test files in this report did not match the code. | Corrected in sections 1.3, 3.1–3.4 and 8.5. |
+
+Eight tests were added to `tests/api/test_api.py`; the ones that check fixes 1 to 3 fail on the original branch and pass after the fix. The API tests skip cleanly when the web extras are not installed.
+
+| Environment | Result |
+|---|---|
+| Python 3.13 with `.[dev,web]` | 1,337 passed, 1 skipped |
+| The same, with dummy hosted-model variables set | API tests: 16 passed |
+| Python 3.13 without the web extras | 1,321 passed, 2 skipped (the API module is skipped) |
+| Frontend `npm run lint` / `npm run build` | No problems / build succeeds |
+| Manual check: one pasted package (`reqeusts`), `qwen2.5:7b` through local Ollama, no settings | LLM-G and LLM-U scans completed (36 s and 20 s); Agent 5 verified both answers |
 
 *End of Report*

@@ -107,4 +107,18 @@ def create_app(service: Optional[ScanService] = None) -> FastAPI:
     return application
 
 
-app = create_app()
+_default_app: Optional[FastAPI] = None
+
+
+def __getattr__(name: str):
+    """Create the default ``app`` only when it is first asked for (``uvicorn ...api.app:app``).
+
+    Importing this module, for example in tests, must not build a ScanService: that would load the evidence
+    store and create ``runtime/scans.db`` in the repository.
+    """
+    global _default_app
+    if name == "app":
+        if _default_app is None:
+            _default_app = create_app()
+        return _default_app
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

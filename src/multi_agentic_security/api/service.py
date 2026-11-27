@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -24,7 +25,8 @@ from multi_agentic_security.agents.agent1_ingestion import (
 from multi_agentic_security.agents.agent1_ingestion.git_fetch import GitLinkError
 from multi_agentic_security.agents.agent2_registry import HttpRegistryClient, SnapshotRegistryClient
 from multi_agentic_security.agents.agent4_recommendation import FileResponseStore, LLMOptions
-from multi_agentic_security.agents.agent4_recommendation.providers import GroqClient, OllamaClient, load_secrets
+from multi_agentic_security.agents.agent1_ingestion.extract import UNSUPPORTED_MANIFESTS
+from multi_agentic_security.agents.agent4_recommendation.providers import OllamaClient
 from multi_agentic_security.contracts.pipeline import Failure, PipelineReport
 from multi_agentic_security.evidence_store import EvidenceStore
 from multi_agentic_security.pipeline import BudgetedLLMClient, CachingLLMClient, PipelineConfig, build_graph, guardrails
@@ -86,7 +88,9 @@ def _sanitize_filename(name: str) -> str:
 
 def _is_supported_upload(path: str) -> bool:
     base = path.rsplit("/", 1)[-1].lower()
-    if base in SUPPORTED_BASENAMES or base.startswith("dockerfile"):
+    # Manifests Agent 1 does not parse yet (pyproject.toml, Pipfile, ...) are let through so that Agent 1
+    # reports them as ``a1.source.unsupported_manifest`` instead of the upload being refused.
+    if base in SUPPORTED_BASENAMES or base in UNSUPPORTED_MANIFESTS or base.startswith("dockerfile"):
         return True
     suffix = Path(base).suffix.lower()
     return suffix in SUPPORTED_EXTENSIONS
@@ -106,6 +110,40 @@ def _parse_cutoff(raw: Optional[str]) -> Optional[datetime]:
         return dt.astimezone(timezone.utc)
     except ValueError as exc:
         raise InputValidationError("Invalid evidence_cutoff date; use YYYY-MM-DD or ISO-8601 format.") from exc
+
+
+# LLM-U and LLM-G run on a local Ollama model on this computer, as in the evaluation. Nothing is sent
+# outside the computer, no API key is used and no secrets file (such as ``.env``) is ever read.
+# The model works without any setting; an environment variable may pick another local model.
+DEFAULT_LOCAL_MODEL = "qwen2.5:7b"   # the best of the three local models in the held-out evaluation
+DEFAULT_LLM_TIMEOUT_SECONDS = "300"  # local models on a laptop GPU can be slow; same limit as the evaluation
+WEB_SETTINGS = ("AGENT4_OLLAMA_MODEL", "AGENT4_LLM_TIMEOUT_SECONDS", "AGENT4_LLM_MAX_OUTPUT_TOKENS")
+OLLAMA_LOCAL_URL = "http://127.0.0.1:11434"
+
+
+def _read_settings() -> dict[str, str]:
+    """Return the optional WEB_SETTINGS overrides that are set (non-empty) in the process environment."""
+    values: dict[str, str] = {}
+    for name in WEB_SETTINGS:
+        value = os.environ.get(name, "").strip()
+        if value:
+            values[name] = value
+    return values
+
+
+def probe_local_ollama(base_url: str = OLLAMA_LOCAL_URL, timeout_s: float = 1.0) -> Optional[list[str]]:
+    """Names of the models installed in the local Ollama server, or None if it is not running.
+
+    Only the loopback address is contacted, and any proxy setting is ignored, so nothing leaves the computer.
+    """
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(base_url + "/api/tags", timeout=timeout_s) as resp:
+            data = json.loads(resp.read(1_000_000))
+    except Exception:  # not running, refused, timed out or not JSON: all mean "not available"
+        return None
+    models = data.get("models", []) if isinstance(data, dict) else []
+    return [m["name"] for m in models if isinstance(m, dict) and isinstance(m.get("name"), str)]
 
 
 def _make_project_id(project_name: str, scan_id: str) -> str:
@@ -167,7 +205,7 @@ class ScanService:
         live_client_factory: Optional[Callable[[], Any]] = None,
         git_fetcher_factory: Optional[Callable[[], Fetcher]] = None,
         llm_client_factory: Optional[Callable[[str], Any]] = None,
-        env_path: Optional[Path] = None,
+        ollama_probe: Optional[Callable[[], Optional[list[str]]]] = None,
         max_workers: int = 2,
     ):
         root = _repo_root()
@@ -176,12 +214,8 @@ class ScanService:
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.store = ScanStore(self.runtime_dir / "scans.db")
 
-        env_file = env_path if env_path is not None else (root / ".env")
-        if env_file.is_file():
-            try:
-                load_secrets(env_file)
-            except OSError:
-                pass
+        self._settings = _read_settings()
+        self._ollama_probe = ollama_probe or probe_local_ollama
 
         if evidence_store is not None:
             self.evidence_store = evidence_store
@@ -201,10 +235,14 @@ class ScanService:
         self._llm_client_factory = llm_client_factory
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="scan-worker")
 
+    def _local_model_status(self) -> dict[str, Any]:
+        model = self._settings.get("AGENT4_OLLAMA_MODEL") or DEFAULT_LOCAL_MODEL
+        installed = self._ollama_probe()
+        return {"model": model, "running": installed is not None,
+                "installed": installed is not None and model in installed}
+
     def health_info(self) -> dict[str, Any]:
-        groq_key = bool(os.environ.get("AGENT4_GROQ_API_KEY1") or os.environ.get("AGENT4_GROQ_API_KEY"))
-        groq_model = os.environ.get("AGENT4_GROQ_MODEL", "").strip() or None
-        ollama_model = os.environ.get("AGENT4_OLLAMA_MODEL", "").strip() or None
+        local = self._local_model_status()
         ev = self.evidence_store.run_record() if self.evidence_store is not None else None
         return {
             "status": "ok",
@@ -217,9 +255,10 @@ class ScanService:
             "snapshot_available": self.snapshot_dir.is_dir(),
             "llm": {
                 "rules_available": True,
-                "groq_configured": bool(groq_key and groq_model),
-                "groq_model": groq_model if groq_key else None,
-                "ollama_model": ollama_model,
+                "local_model": local["model"],
+                "ollama_running": local["running"],
+                "local_model_installed": local["installed"],
+                "local_model_ready": local["running"] and local["installed"],
             },
             "supported_inputs": sorted(SUPPORTED_BASENAMES | {"*.py", "*.js", "*.ts", "*.sh", "*.md", "*.zip"}),
         }
@@ -233,17 +272,18 @@ class ScanService:
             wrapped = CachingLLMClient(BudgetedLLMClient(inner, max_calls=200), self.runtime_dir / "llm_cache")
             return wrapped, resp_store
 
-        groq_key = os.environ.get("AGENT4_GROQ_API_KEY1") or os.environ.get("AGENT4_GROQ_API_KEY")
-        groq_model = os.environ.get("AGENT4_GROQ_MODEL", "").strip()
-        if groq_key and groq_model:
-            try:
-                client = GroqClient()
-            except ValueError as exc:
-                raise InputValidationError(f"Groq LLM configuration error: {exc}") from exc
-            wrapped = CachingLLMClient(BudgetedLLMClient(client, max_calls=200), self.runtime_dir / "llm_cache")
-            return wrapped, resp_store
-
-        ollama_model = os.environ.get("AGENT4_OLLAMA_MODEL", "").strip()
+        local = self._local_model_status()
+        ollama_model = local["model"]
+        if not local["running"]:
+            raise InputValidationError(
+                f"Variant {variant} runs a local model, but Ollama is not running on this computer. "
+                f"Start Ollama and run 'ollama pull {ollama_model}' once, or use R0 (deterministic rules)."
+            )
+        if not local["installed"]:
+            raise InputValidationError(
+                f"Variant {variant} needs the local model {ollama_model}. "
+                f"Run 'ollama pull {ollama_model}' once, or use R0 (deterministic rules)."
+            )
         if ollama_model:
             try:
                 client = OllamaClient(ollama_model)
@@ -253,9 +293,7 @@ class ScanService:
             return wrapped, resp_store
 
         raise InputValidationError(
-            f"Variant {variant} requires an LLM backend, but neither Groq "
-            "(AGENT4_GROQ_API_KEY1 + AGENT4_GROQ_MODEL) nor Ollama (AGENT4_OLLAMA_MODEL) is configured. "
-            "Use 'R0' (deterministic rules) or configure .env."
+            f"Variant {variant} has no local model name. Use R0 (deterministic rules)."
         )
 
     def submit_scan(
@@ -372,8 +410,11 @@ class ScanService:
         elif registry_mode == "live":
             registry_client = self._live_client_factory()
 
-        timeout_s = float(os.environ.get("AGENT4_LLM_TIMEOUT_SECONDS", "60") or 60)
-        max_tokens = int(os.environ.get("AGENT4_LLM_MAX_OUTPUT_TOKENS", "1024") or 1024)
+        try:
+            timeout_s = float(self._settings.get("AGENT4_LLM_TIMEOUT_SECONDS", DEFAULT_LLM_TIMEOUT_SECONDS))
+            max_tokens = int(self._settings.get("AGENT4_LLM_MAX_OUTPUT_TOKENS", "1024"))
+        except ValueError as exc:
+            raise InputValidationError("AGENT4_LLM_TIMEOUT_SECONDS and AGENT4_LLM_MAX_OUTPUT_TOKENS must be numbers.") from exc
         llm_options = LLMOptions(timeout_s=min(max(timeout_s, 5.0), 300.0), max_output_tokens=min(max(max_tokens, 128), 4096))
 
         cfg = PipelineConfig(

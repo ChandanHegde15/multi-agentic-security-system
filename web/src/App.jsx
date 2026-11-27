@@ -148,8 +148,8 @@ export default function App() {
                 <Database size={13} aria-hidden="true" />
                 Evidence Store ({health.evidence_store?.source}): {health.evidence_store?.records_indexed ?? 0} records
               </span>
-              <span className={`pill ${health.llm?.groq_configured ? 'ok' : ''}`}>
-                LLM: {health.llm?.groq_configured ? `Groq (${health.llm.groq_model})` : 'Rules R0 Ready'}
+              <span className={`pill ${health.llm?.local_model_ready ? 'ok' : ''}`}>
+                LLM: {health.llm?.local_model_ready ? `Local model (${health.llm.local_model})` : 'Rules R0 Ready'}
               </span>
             </>
           ) : (
