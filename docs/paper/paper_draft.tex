@@ -1,12 +1,13 @@
 % Paper, IEEE conference format (IEEEtran), six-page version.
 % Every number in the abstract and in the Results section is a held-out TEST number from the results report of
 % the three local models (heldout_report/0.1). Methods numbers come from the frozen protocol, the case-build
-% record and the evidence-store manifests. Remaining placeholders: search for "TBD".
+% record and the evidence-store manifests.
 \documentclass[conference]{IEEEtran}
 \usepackage{cite}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{dblfloatfix}   % keeps full-width and column floats in numbered order
 \usepackage{url}
 \usepackage{tikz}
 \usepackage{pgfplots}
@@ -116,67 +117,9 @@ To measure both, we built a pipeline of five agents: Dependency Extraction, Evid
 Recommendation and Remediation, and Verification. Only the fourth may use a language model. The fifth, the verifier,
 re-checks every claim and every recommended target against recorded evidence before anything is delivered. None of these
 parts is new on its own~\cite{zeshan2026,toda2025,zahan2025,lewis2020,dhuliawala2024}. What we add is the
-measurement. We check every claim against the records it cites, and every recommended target across five separate
-label families. We count what the verifier removes, what it wrongly rejects and what it costs in coverage, and we
-compare it with simple rules. Finally, we hide later advisories from the system but not from the scorer, so the
-verifier cannot succeed by looking up the answer. We froze the protocol and data before any held-out run.
-
-% =====================================================================================================
-\section{Related Work}
-
-\textbf{Package hallucination.} Open models invent packages far more often than commercial ones, and fixes applied
-during generation lower the rate without removing it~\cite{spracklen2025}. The rate depends on the model, the language and the task~\cite{krishna2025}. Even a single misspelling in the
-request can trigger it, in up to 26\% of tasks~\cite{twist2026}. That study's benchmark, LibHalluBench, gives us
-our nonexistent family, which we use only for testing. Many invented names turn out to be registered lookalikes
-already~\cite{raj2026}. A static analyzer catches 14--85\% of library hallucinations~\cite{mirandapena2026}, and
-every model tested in~\cite{ligao2025} produced code with supply-chain threats. All of this work is about generation, not remediation.
-
-\textbf{Typosquatting and malicious packages.} Typosquatting and its defenses have been studied for
-years~\cite{vu2020,taylor2020}, and package confusion takes 13 forms, many of them semantic rather than
-spelling-based~\cite{neupane2023}. We use the typosquat pairs published by Truong et al.~\cite{truong2025}, and
-package metadata cuts the false-positive rate of confusion detection from 80\% to 28\%~\cite{jiang2026}.
-Typosquatting, dependency confusion and package compromise are separate attack vectors~\cite{ladisa2023}, which is
-why we keep label families apart. Real attacks are well documented~\cite{ohm2020,duan2021,guo2023}. Model-based detectors are now strong. One reached a precision of
-0.99 on npm~\cite{zahan2025}, the multi-agent CHASE reached 0.996~\cite{toda2025}, and LAMPS splits the work across
-four agents~\cite{zeshan2026}. Still, the indicators these models report are much weaker than their
-verdicts~\cite{ryan2026}. We take detection as given and study the fix.
-
-\textbf{Remediation and grounding.} Vulnerabilities propagate through the npm dependency network~\cite{decan2018},
-and 11.3\% of the projects in one study dropped Dependabot~\cite{he2023}. Models repair real vulnerable code
-poorly~\cite{pearce2023} and often choose vulnerable library versions~\cite{wang2026}. Singla
-et al.~\cite{singla2026} judge each dependency change only against the advisories published before it, and our
-temporal hold-out follows the same rule. A vendor report, not peer reviewed, found that 27.8\% of the upgrade
-versions a large model recommended did not exist~\cite{sonatype2026}. Tools used in practice, built on databases
-such as OSV~\cite{osv}, are deterministic, and our rule-based recommender stands in for them. Unlike retrieval
-grounding~\cite{lewis2020}, citation checking~\cite{gao2023} or self-verification~\cite{dhuliawala2024}, our
-verifier is deterministic and separate from the model. Compared with the two closest
-studies~\cite{spracklen2025,singla2026}, we look at remediation rather than generation, at five label families
-rather than one, and at the reasons as well as the action.
-
-% =====================================================================================================
-\section{Threat Model and Problem Definition}
-\label{sec:threat}
-
-A developer, or an agent working for one, receives findings about the dependencies in a manifest and asks a rule
-set or a language model how to fix them. The attacker can publish a name a model is likely to invent, a lookalike of a popular
-package, or a malicious version, but cannot change the evidence, the registry recordings or the verifier.
-
-A recommendation has an action (\texttt{remove}, \texttt{replace}, \texttt{upgrade}, \texttt{keep} or
-\texttt{abstain}), an optional target package and version, and claims that cite evidence records by identifier. We
-call it \emph{unsafe} if it keeps a package or version reported malicious, typosquatted or vulnerable (U-K), or if
-its target is reported malicious (U-M), does not exist (U-N), is a listed typosquat (U-T) or falls in a known
-affected range (U-V). A claim is \emph{unsupported} if it cites nothing, cites an identifier missing from the store,
-or cites records that do not say what it says. Both are judged against all the evidence, including records
-published after the cut-off. The system never installs, imports or runs a package; it only writes a report.
-
-% =====================================================================================================
-\section{System Design}
-\label{sec:system}
-
-The five agents run in a fixed order (Fig.~\ref{fig:pipeline}) as a LangGraph~\cite{langgraph} state graph. After
-each stage the graph checks the output against a typed contract, so a stage that fails stops the run with an
-explicit failure state instead of passing a default value along. Every decision records its reasons: the rule that
-fired, its inputs, the evidence identifiers and a plain sentence.
+measurement. We check every claim against the records it cites and every recommended target across five separate
+label families, count what the verifier removes, wrongly rejects and costs in coverage, compare it with simple
+rules, and hide later advisories from the system but not from the scorer. We froze the protocol and data before any held-out run.
 
 \begin{figure*}[t]
 \centering
@@ -227,6 +170,58 @@ data that Agent~2 also reads.}
 \label{fig:pipeline}
 \end{figure*}
 
+% =====================================================================================================
+\section{Related Work}
+
+Spracklen et al.~\cite{spracklen2025} showed that open models invent packages far more often than commercial ones,
+and that mitigations applied during generation lower the rate without removing it. Twist et al.~\cite{twist2026}
+found that even a single misspelling in the request can trigger it, in up to 26\% of tasks; their benchmark,
+LibHalluBench, gives us our nonexistent family, which we use only for testing. Many invented names turn out to be
+registered lookalikes already~\cite{raj2026}, and a static analyzer catches only 14--85\% of library
+hallucinations~\cite{mirandapena2026}. All of this work is about generation, not remediation.
+
+Package confusion takes 13 forms, many of them semantic rather than spelling-based~\cite{neupane2023}, and we use
+the typosquat pairs published by Truong et al.~\cite{truong2025}. Typosquatting, dependency confusion and package
+compromise are separate attack vectors~\cite{ladisa2023}, which is why we keep label families apart. Model-based
+detectors are now strong: one reached a precision of 0.99 on npm~\cite{zahan2025}, the multi-agent CHASE reached
+0.996~\cite{toda2025}, and LAMPS splits the work across four agents~\cite{zeshan2026}. Still, the indicators these
+models report are much weaker than their verdicts~\cite{ryan2026}. We take detection as given and study the fix.
+
+Models often choose vulnerable library versions~\cite{wang2026}, and Singla et al.~\cite{singla2026} judge each
+dependency change only against the advisories published before it, the rule our temporal hold-out follows. A vendor
+report, not peer reviewed, found that 27.8\% of the upgrade versions a large model recommended did not
+exist~\cite{sonatype2026}. Tools used in practice, built on databases such as OSV~\cite{osv}, are deterministic, and
+our rule-based recommender stands in for them. Unlike retrieval grounding~\cite{lewis2020}, citation
+checking~\cite{gao2023} or self-verification~\cite{dhuliawala2024}, our verifier is deterministic and separate from
+the model. Compared with the two closest studies~\cite{spracklen2025,singla2026}, we look at remediation rather
+than generation, at five label families rather than one, and at the reasons as well as the action.
+
+% =====================================================================================================
+\section{Threat Model and Problem Definition}
+\label{sec:threat}
+
+A developer, or an agent working for one, receives findings about the dependencies in a manifest and asks a rule
+set or a language model how to fix them. The attacker can publish a name a model is likely to invent, a lookalike of a popular
+package, or a malicious version, but cannot change the evidence, the registry recordings or the verifier.
+
+A recommendation has an action (\texttt{remove}, \texttt{replace}, \texttt{upgrade}, \texttt{keep} or
+\texttt{abstain}), an optional target package and version, and claims that cite evidence records by identifier. We
+call it \emph{unsafe} if it keeps a package or version reported malicious, typosquatted or vulnerable (U-K), or if
+its target is reported malicious (U-M), does not exist (U-N), is a listed typosquat (U-T) or falls in a known
+affected range (U-V). A claim is \emph{unsupported} if it cites nothing, cites an identifier missing from the store,
+or cites records that do not say what it says. Both are judged against all the evidence, including records
+published after the cut-off. The system never installs, imports or runs a package; it only writes a report.
+
+% =====================================================================================================
+\section{System Design}
+\label{sec:system}
+
+The five agents run in a fixed order (Fig.~\ref{fig:pipeline}) as a LangGraph~\cite{langgraph} state graph. After
+each stage the graph checks the output against a typed contract, so a stage that fails stops the run with an
+explicit failure state instead of passing a default value along. Every decision records its reasons: the rule, its
+inputs, the evidence identifiers and a plain sentence.
+
+
 The \textbf{Dependency Extraction Agent} reads Python and npm manifests offline and produces records with normalized
 names and version constraints. The \textbf{Evidence Collection Agent} looks up each package by exact key in the
 evidence store and in time-stamped registry recordings; when a run has a cut-off date, it hides everything published
@@ -240,7 +235,7 @@ reported malicious or typosquatted, and lies outside every affected range visibl
 check that cannot run gives \texttt{abstain}, never \texttt{accept}. The verifier is independent of the model but
 not of the evidence, so it cannot catch a malicious package that no source has reported yet.
 
-\textbf{Implementation.} The system is written in Python 3.13, with LangGraph for orchestration, Pydantic models for
+The system is written in Python 3.13, with LangGraph for orchestration, Pydantic models for
 the agent contracts and Ollama for serving the local models. A web interface is being developed on top of it: a
 FastAPI back end accepts an uploaded manifest, runs the pipeline and returns the report, and a React front end shows
 each agent's decision and its reasons. The web interface is not part of the evaluation reported here.
@@ -249,15 +244,31 @@ each agent's decision and its reasons. The web interface is not part of the eval
 \section{Evaluation Methodology}
 \label{sec:method}
 
-\textbf{Hypotheses.} We fixed five hypotheses in advance and keep the protocol's numbering. We expected the
-verifier to deliver fewer vulnerable targets (HYP1) and to remove more unsafe answers than it wrongly rejects
-(HYP2). We expected the evidence to make answers safer and better supported (HYP3), the verified model to be as safe
-as the rules within 3 points while covering more cases (HYP4), and the grounded model to make unsupported claims
-that the verifier catches (HYP7).
+\subsection{Hypotheses and Conditions}
+We fixed five hypotheses in advance and keep the protocol's numbering. We expected the verifier to deliver fewer
+vulnerable targets (HYP1) and to remove more unsafe answers than it wrongly rejects (HYP2). We expected the evidence
+to make answers safer and better supported (HYP3), the verified model to be as safe as the rules within 3 points
+while covering more cases (HYP4), and the grounded model to make unsupported claims that the verifier catches (HYP7).
 
-\textbf{Conditions.} Agent~4 runs as rules (R0), as a model that sees only the names of the findings (LLM-U), or as a
-model that also sees the evidence records (LLM-G). This gives C1 rules, C2 LLM-U, C3 LLM-G, C4 LLM-G with the verifier
-and C5 rules with the verifier. C3 and C4 share one run, as do C1 and C5, so only the verifier differs.
+Agent~4 runs as rules (R0), as a large language model (LLM) that sees only the names of the findings (LLM-U), or as
+an LLM that also sees the evidence records (LLM-G). This gives five conditions: C1 rules, C2 LLM-U, C3 LLM-G, C4
+LLM-G with the verifier and C5 rules with the verifier. C3 and C4 share one run, as do C1 and C5, so only the
+verifier differs.
+
+\subsection{Evidence, Cases and Settings}
+The evidence store holds 123{,}980 records from eight sources (Table~\ref{tab:store}),
+each with its source, record identifier, version scope, publication date and file hash. Overlapping malicious sources do not count as independent confirmations,
+and vulnerable results cover PyPI only. Each case is a one-line manifest with one labeled dependency. We fixed the
+train, development and test sides (2{,}640, 624 and 1{,}730 cases) before running any model, keeping each package,
+and each typosquat with its target, on one side. Hallucination-benchmark names~\cite{twist2026} appear only in the
+test split, and no name that is also on a malicious or typosquat list enters development. A sampling rule set in
+advance drew 60 test cases per family (298 after dropping two typosquat names no registry accepts) and 49 and 52
+vulnerable cases for the cut-off settings.
+
+In the main setting, S0, the system sees all the evidence. The cut-off settings S1 and S2 replay the vulnerable cases as if the
+system had run on 1~December~2024 and 1~September~2025, hiding later evidence and uploads from the system but not
+from the scorer. A fix that looked clean on the cut-off date but was reported vulnerable later therefore counts as
+unsafe, which is what a real user would have experienced.
 
 \begin{table}[t]
 \caption{Evidence store (frozen for all held-out runs)}
@@ -282,21 +293,8 @@ Total & & 123{,}980 \\
 \end{tabular}
 \end{table}
 
-\textbf{Evidence and cases.} The evidence store holds 123{,}980 records from eight sources (Table~\ref{tab:store}),
-each with its source, record identifier, version scope, publication date and file hash. Overlapping malicious sources do not count as independent confirmations,
-and vulnerable results cover PyPI only. Each case is a one-line manifest with one labeled dependency. We fixed the
-train, development and test sides (2{,}640, 624 and 1{,}730 cases) before running any model, keeping each package,
-and each typosquat with its target, on one side. Hallucination-benchmark names~\cite{twist2026} appear only in the
-test split, and no name that is also on a malicious or typosquat list enters development. A sampling rule set in
-advance drew 60 test cases per family for S0 (298 after dropping two typosquat names no registry accepts) and 49 and
-52 vulnerable cases for S1 and S2.
-
-\textbf{Temporal settings.} In S0 the system sees all the evidence. S1 and S2 replay the vulnerable cases as if the
-system had run on 1~December~2024 and 1~September~2025, hiding later evidence and uploads from the system but not
-from the scorer. A fix that looked clean on the cut-off date but was reported vulnerable later therefore counts as
-unsafe, which is what a real user would have experienced.
-
-\textbf{Outcomes and statistics.} A scorer outside the system marks each unsafe property, and a property it cannot
+\subsection{Outcomes and Statistics}
+A scorer outside the system marks each unsafe property, and a property it cannot
 judge is never counted as safe. \emph{Delivered unsafe} counts the unsafe answers that actually reach the user. We
 always report it next to \emph{coverage}, the share of cases that get a delivered recommendation other than abstain,
 because a system that withholds everything would otherwise look perfectly safe. Proportions get Wilson 95\% intervals~\cite{wilson1927}, and
@@ -304,19 +302,13 @@ claim rates a bootstrap over packages~\cite{efron1993}. Paired comparisons use t
 test~\cite{mcnemar1947} with the Holm correction~\cite{holm1979}. When no case differs between two conditions, HYP4
 uses the one-sided 95\% Wilson bound, so having no events can never prove non-inferiority on its own.
 
-\textbf{Protocol and models.} All prompt and design choices were made on development cases. The protocol, plan,
+\subsection{Protocol and Models}
+All prompt and design choices were made on development cases. The protocol, plan,
 cases, evidence and prompt were hashed and frozen before held-out generation, and scoring replays the cached answers
 and stops at any mismatch. We made four dated amendments, all before seeing any result: the
 models share one case sample, the study covers the three local models below, a scoring gate was dropped, and a
 prompt ordering bug was fixed. The models are Llama~3.2~3B~\cite{llama3}, Qwen~2.5~3B and Qwen~2.5~7B~\cite{qwen25},
 quantized to 4 bits and served through Ollama~\cite{ollama} at temperature 0. None was fine-tuned.
-% TBD: repository URL and artifact availability statement, subject to the licenses of the data sources.
-
-% =====================================================================================================
-\section{Results}
-\label{sec:results}
-All numbers in this section are held-out TEST results, given as counts over their own denominators
-(Tables~\ref{tab:s0} and~\ref{tab:cutoff}).
 
 \begin{table*}[t]
 \caption{Results without a cut-off (S0, TEST). Values are counts over the stated denominator.}
@@ -353,15 +345,21 @@ Vulnerable & Llama 3.2 3B & 8/44 & 8/24 & 0/60 & 26/60 & 59/60 \\
 \end{tabular}
 \end{table*}
 
-\textbf{Claim support.} Every model made unsupported claims even with the evidence in its prompt (C3). On vulnerable
-cases, 8 of 24 claims by Llama 3.2 3B were unsupported, 25 of 38 by Qwen 2.5 3B and 50 of 95 by Qwen 2.5 7B. On
-typosquat cases the share ranged from 3 of 77 to 16 of 63. Without the evidence (C2), almost every claim was unsupported. Cited
-records were nearly always about the right package (Table~\ref{tab:cite}): precision was 98.8--100\% on malicious,
-typosquat and vulnerable cases. The models simply cited too few, and recall on vulnerable cases was only
-15.2--26.9\%, because such a package often has many advisories. On benign packages no cited record was relevant,
-and after verification (C4) precision was 100\% wherever a recommendation was delivered. In
-S0 the verifier let no unsupported claim through, so HYP7 holds there. Under the cut-offs, though, some of Qwen 2.5
-7B's verified answers still carried unsupported claims (5 of 41 in S1 and 11 of 51 in S2).
+% =====================================================================================================
+\section{Results}
+\label{sec:results}
+All numbers in this section are held-out TEST results, given as counts over their own denominators.
+Table~\ref{tab:s0} summarizes the main setting.
+
+
+\subsection{Claim Support}
+Every model made unsupported claims even with the evidence in its prompt (C3). On vulnerable
+cases the share ranged from 8 of 24 claims for Llama 3.2 3B to 25 of 38 for Qwen 2.5 3B, and without the evidence
+(C2) almost every claim was unsupported. The problem was not citing the wrong record: precision was 98.8--100\% on
+malicious, typosquat and vulnerable cases (Table~\ref{tab:cite}). The models simply cited too few, and recall on
+vulnerable cases was only 15.2--26.9\%. In S0 the verifier let no unsupported claim through, so HYP7 holds there.
+Under the cut-offs, some of Qwen 2.5 7B's verified answers still carried unsupported claims (5 of 41 in S1 and 11
+of 51 in S2).
 
 \begin{table}[t]
 \caption{Citation precision and recall of the grounded model (C3, S0, TEST), in percent}
@@ -389,13 +387,13 @@ sampled cases, including the two excluded ones. \textsuperscript{b}Benign cases 
 is undefined and every citation counts against precision.}
 \end{table}
 
-\textbf{Safety.} The rules never gave an unsafe recommendation in S0. The 3B models often did
-(Fig.~\ref{fig:unsafe}): 14 of 54 and 23 of 51 answers on malicious cases, and 17 of 37 and 22 of 36 on typosquat
-cases. In these answers the model kept the flagged package or replaced it with one that is itself malicious or a
-listed typosquat. Qwen 2.5 7B never did this, but all three models suggested vulnerable upgrade targets (8 of 44, 9
-of 46 and 6 of 47). Giving the models the evidence did not make them safer (HYP3). For Llama 3.2 3B it even turned
-safe answers into unsafe ones, on malicious cases (0 against 14, Holm $p=0.002$) and on typosquat cases (0 against
-13, $p=0.003$). The other differences were not significant.
+\subsection{Safety of Actions and Targets}
+The rules never gave an unsafe recommendation in S0, but the 3B models often did
+(Fig.~\ref{fig:unsafe}). On malicious and typosquat cases they kept the flagged package, or swapped it for one that
+is itself malicious or a listed typosquat, in up to 61\% of their answers. Qwen 2.5 7B never did this, but all three
+models suggested vulnerable upgrade targets. Giving the models the evidence did not make them safer (HYP3). For
+Llama 3.2 3B it even made things worse, on malicious cases (0 against 14, Holm $p=0.002$) and on typosquat cases (0
+against 13, $p=0.003$).
 
 \begin{figure}[t]
 \centering
@@ -422,6 +420,16 @@ delivered.}
 \label{fig:unsafe}
 \end{figure}
 
+
+
+\subsection{Effect and Cost of the Verifier}
+With the verifier on (C4), no unsafe recommendation reached the user in S0. It withheld 100
+unsafe recommendations and wrongly rejected only 5 of 396 acceptable ones, so HYP2 holds. HYP1 was not significant
+in S0 because too few vulnerable targets occurred ($p=0.06$ to $0.41$), but it holds for every model under the
+cut-offs (Table~\ref{tab:cutoff}). As a detector (Table~\ref{tab:detect}), the verifier reached 95.2\% precision and
+100\% recall in S0. Under the cut-offs its precision was 100\% and its recall fell to about 60\%, but every miss was
+a target whose advisories all appeared after the cut-off.
+
 \begin{table}[t]
 \caption{Delivered unsafe targets under the cut-offs (vulnerable family, TEST)}
 \label{tab:cutoff}
@@ -444,45 +452,26 @@ S2 & Llama 3B & 34/52 & 39/49 & 6/52 & 11/52 & $<$0.001 \\
 \end{tabular}
 \end{table}
 
-\textbf{The verifier.} With the verifier on (C4), no unsafe recommendation reached the user in S0. It withheld 100
-unsafe recommendations and wrongly rejected 5 of 396 acceptable ones, so HYP2 holds. HYP1 was not significant in S0,
-where the verifier removed 8, 9 and 6 vulnerable targets and added none ($p=0.11$, $0.06$ and $0.41$); the counts
-are simply too small. Under the cut-offs it holds for every model (Table~\ref{tab:cutoff}). Seen as a detector (Table~\ref{tab:detect}), the
-verifier reached 95.2\% precision and 100\% recall in S0. Under the cut-offs its precision stayed at 100\%, while
-recall dropped to about 60\% overall and to 24\% for Qwen 2.5 7B. Every one of these misses was a target whose advisories all
-appeared after the cut-off. Judged by what was known at decision time, recall was 100\% throughout.
-
 \begin{table}[t]
-\caption{The verifier as a detector of unsafe recommendations (TEST; P, R and Acc.\ in percent)}
+\caption{The verifier as a detector of unsafe recommendations, all three models (TEST; P, R and Acc.\ in percent)}
 \label{tab:detect}
 \centering
 \small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}llrrrrrrr@{}}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrrrrr@{}}
 \toprule
-Set. & Model & TP & FN & FP & TN & P & R & Acc. \\
+Setting & TP & FN & FP & TN & P & R & Acc. \\
 \midrule
-S0 & Llama 3B & 39 & 0 & 3 & 143 & 92.9 & 100.0 & 98.4 \\
- & Qwen 3B & 55 & 0 & 1 & 76 & 98.2 & 100.0 & 99.2 \\
- & Qwen 7B & 6 & 0 & 1 & 172 & 85.7 & 100.0 & 99.4 \\
- & \textit{All} & 100 & 0 & 5 & 391 & 95.2 & 100.0 & 99.0 \\
-\midrule
-S1 & Llama 3B & 33 & 6 & 0 & 4 & 100.0 & 84.6 & 86.0 \\
- & Qwen 3B & 17 & 13 & 0 & 3 & 100.0 & 56.7 & 60.6 \\
- & Qwen 7B & 7 & 22 & 0 & 14 & 100.0 & 24.1 & 48.8 \\
- & \textit{All} & 57 & 41 & 0 & 21 & 100.0 & 58.2 & 65.5 \\
-\midrule
-S2 & Llama 3B & 33 & 6 & 0 & 5 & 100.0 & 84.6 & 86.4 \\
- & Qwen 3B & 23 & 9 & 0 & 6 & 100.0 & 71.9 & 76.3 \\
- & Qwen 7B & 8 & 25 & 0 & 12 & 100.0 & 24.2 & 44.4 \\
- & \textit{All} & 64 & 40 & 0 & 23 & 100.0 & 61.5 & 68.5 \\
+S0 & 100 & 0 & 5 & 391 & 95.2 & 100.0 & 99.0 \\
+S1 & 57 & 41 & 0 & 21 & 100.0 & 58.2 & 65.5 \\
+S2 & 64 & 40 & 0 & 23 & 100.0 & 61.5 & 68.5 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The price is coverage (Fig.~\ref{fig:coverage}). On vulnerable cases the verified models delivered 20 to 26
-recommendations out of 60, while the rules delivered 59, and Llama 3.2 3B delivered only 5 of 60 on benign packages.
-The two 3B models also failed to give a valid grounded answer in 15 and 49 of their 300 cases.
+The price is coverage (Fig.~\ref{fig:coverage}). On vulnerable cases the verified models gave advice in only 20 to
+26 of 60 cases, against 59 for the rules, and the two 3B models failed to produce a valid grounded answer in 15 and
+49 of their 300 cases.
 
 \begin{figure}[t]
 \centering
@@ -509,70 +498,71 @@ that receive a delivered recommendation other than abstain.}
 \label{fig:coverage}
 \end{figure}
 
-\textbf{Rules against the model.} In S0 the verified model and the rules were equally safe, but we could not show
-non-inferiority within 3 points (the one-sided 95\% bound was 4.3 to 6.2 points). The verified model also covered
-fewer cases in every family except one, malicious cases with Llama 3.2 3B (40 against 25 of 60), so HYP4 is not
-supported. Under the cut-offs it delivered fewer vulnerable targets than the rules ($-17$ to $-54$ points), but also
-far fewer recommendations (10 to 37 against 47 and 50), so most of the gap comes from withholding.
 
-\textbf{Temporal hold-out.} Under the cut-offs the rules delivered a vulnerable target in 31 of 49 and 34 of 52
-cases, and the verifier accepted all of them. To find out why, we checked the publication dates of the advisories behind each one (an analysis we
-had not planned in the protocol). For every vulnerable target delivered by the rules or by a verified model, all of
-those advisories came out after the cut-off. Wherever an advisory was already visible at the cut-off, the verifier
-removed the target.
+\subsection{Rules Against the Model}
+In S0 the verified model was as safe as the rules, but non-inferiority within 3
+points could not be shown (the one-sided bound was 4.3 to 6.2 points), and it covered fewer cases in every family but
+one, so HYP4 is not supported. Under the cut-offs it delivered fewer vulnerable targets than the rules, mostly
+because it delivered far fewer recommendations (10 to 37 against 47 and 50).
+
+\subsection{Temporal Hold-Out}
+Under the cut-offs the verifier accepted every vulnerable target that the rules delivered
+(31 of 49 and 34 of 52 cases). A check of the advisory dates, which we had not planned in the protocol, explains why:
+every vulnerable target delivered by the rules or by a verified model was covered only by advisories published after
+the cut-off. Wherever an advisory was already visible, the verifier removed the target.
 
 % =====================================================================================================
-\section{Discussion and Threats to Validity}
-\textbf{Evidence in the prompt does not keep the reasons honest.} The models stated facts that the records in front
-of them do not contain. This matches the gap between verdicts and explanations in malware
-detection~\cite{ryan2026} and the citation gaps in open-domain text~\cite{gao2023}. A developer who trusts the
-explanation of a fix would often be misled even when the action itself is fine, and only a claim-by-claim check
-makes this visible.
+\section{Discussion}
+Having the evidence in the prompt did not keep the models' reasons honest. They stated facts that the records in
+front of them do not contain, which matches the gap between verdicts and explanations in malware
+detection~\cite{ryan2026} and the citation gaps in open-domain text~\cite{gao2023}.
 
-\textbf{Small models can turn a detected
-risk into a new one.} The 3B models often kept a malicious or typosquatted package, or swapped it for one just as bad.
-This is the attack described in~\cite{spracklen2025,neupane2023}, reached through remediation instead of code
-generation. The 7B model avoided this but
-still suggested vulnerable upgrades, as reported for generated code~\cite{wang2026}.
+Small models can also turn a detected risk into a new one. The 3B models often kept a malicious or typosquatted
+package, or swapped it for one just as bad. This is the attack described in~\cite{spracklen2025,neupane2023},
+reached through remediation instead of code generation. The 7B model avoided it but still suggested vulnerable
+upgrades, as reported for generated code~\cite{wang2026}.
 
-\textbf{The verifier works, but
-the evidence sets its limit.} It removed everything that the evidence at decision time could identify. What it could
-not catch, and neither could the rules, was an upgrade reported vulnerable only later. Like a static
-analyzer~\cite{mirandapena2026}, a deterministic checker is only as good as what it can see. This supports
-time-aware evaluation~\cite{singla2026}, and it means a fix still needs monitoring after it is applied.
+The verifier works, but the evidence sets its limit. It removed everything that the evidence at decision time could
+identify. What it could not catch, and neither could the rules, was an upgrade reported vulnerable only later. Like
+a static analyzer~\cite{mirandapena2026}, a deterministic checker is only as good as what it can see, which supports
+time-aware evaluation~\cite{singla2026} and means a fix still needs monitoring after it is applied.
 
-\textbf{Rules remain a strong baseline.} In S0 the rules were never unsafe and covered more cases than the verified
-models in almost every family, in line with the vendor finding that deterministic strategies can beat model advice~\cite{sonatype2026}. The only
-exception was Llama 3.2 3B on malicious cases. Running the rules first and the verified
-model only where they abstain might give the best of both, but we did not test this.
+Finally, rules remain a strong baseline. In S0 they were never unsafe and covered more cases than the verified
+models in almost every family, in line with the vendor finding that deterministic strategies can beat model
+advice~\cite{sonatype2026}.
 
-\textbf{Threats to validity.} We define ``unsafe'' and ``unsupported'' from evidence records, and an upgrade outside
-every affected range can still break a project~\cite{decan2018}. The verifier and the scorer share one version-range
-grammar, so their agreement on version facts is not independent evidence, although fixed test vectors guard the grammar. Claim
-support is judged by a deterministic matcher, and a different definition of support would give different rates. The recordings do not show packages removed after a cut-off, and training data may include later
-advisories. Vulnerable results cover PyPI only, each number comes from one run per model, and with about 60 cases
-per family some intervals are wide. Under a cut-off, malicious and typosquat events are rare, so we evaluate those
-families in S0 only. \textbf{Ethics.} The datasets contain real malware. No package was installed,
-imported or run, registry access was limited to metadata, and no human participants were involved.
+Our study has limits. We define ``unsafe'' and ``unsupported'' from evidence records, and an upgrade outside every
+affected range can still break a project~\cite{decan2018}. The verifier and the scorer share one version-range
+grammar, so their agreement on version facts is not independent evidence, although fixed test vectors guard it. The
+recordings do not show packages removed after a cut-off, and training data may include later advisories.
+Vulnerable results cover PyPI only, each number comes from one run per model, and with about 60 cases per family
+some intervals are wide. Malicious and typosquat events are rare under a cut-off, so those families are evaluated
+in S0 only. Finally, the datasets contain real malware, so no package was installed, imported or run, registry
+access was limited to metadata, and no human participants were involved.
 
 % =====================================================================================================
 \section{Conclusion}
 We set out to learn whether the advice language models give on flagged dependencies can be trusted. On our
 held-out cases, it often could not. Even with the evidence in front of them, the models made claims that the
-evidence did not support, and the small models often recommended unsafe actions on malicious and typosquat
-packages. Without a cut-off, an independent, deterministic verifier stopped all of these, but it left many cases
-without advice, and simple rules were just as safe. The cut-off experiments show where the verifier's limit lies:
-every unsafe fix that still got through involved an advisory published later. A verifier can only enforce what is
-known when the decision is made. Next, we plan to test larger models and the complete test lists, adapt a model on
-the training split, ablate the verifier checks, try rules first with the model as a fallback, compare against an
-existing audit tool and add npm advisories.
+evidence did not support, and the two small models often recommended keeping a malicious or typosquatted package,
+or replacing it with one just as bad. A convincing explanation is no guarantee of a safe fix.
 
-% TBD: acknowledgments and a statement on the use of AI tools, worded by the author according to the venue's policy.
+An independent, deterministic verifier changed this. Without a cut-off it let none of the unsafe recommendations
+through and wrongly rejected very few acceptable ones. The cost was coverage: many cases were left with no advice,
+and simple rules were just as safe while answering more often. The cut-off experiments showed where the verifier's
+limit lies. Every unsafe fix that still got through involved an advisory published later, so a verifier can only
+enforce what is known when the decision is made. For anyone building such tools, the practical lesson is to check
+every model-proposed fix against evidence before showing it, to keep deterministic rules as the baseline, and to
+keep watching dependencies after a fix has been applied.
+
+These results come from three small local models and about 60 cases per family, so they are a starting point
+rather than a final answer. Next, we plan to test larger models and the complete test lists, adapt a model on the
+training split, ablate the verifier checks, try rules first with the model as a fallback, compare against an
+existing audit tool and add npm advisories.
 
 % =====================================================================================================
 \begin{thebibliography}{99}
-% Numbered in order of first citation (IEEE). Entries for data sources, software, models and statistical
-% methods were added from standard references: check each against the original and add access dates.
+% Numbered in order of first citation (IEEE).
 
 \bibitem{spracklen2025}
 J.~Spracklen, R.~Wijewickrama, A.~H.~M.~N.~Sakib, A.~Maiti, B.~Viswanath, and M.~Jadliwala,
@@ -590,9 +580,9 @@ L.~Twist, M.~Harman, H.~Yannakoudakis, and J.~M.~Zhang,
 in \emph{Proc. 2026 Conf. Empirical Methods in Natural Language Processing (EMNLP)}, 2026, pp.~1785--1812.
 
 \bibitem{wang2026}
-Wang, Wu, Ling, Luo, and Zhao,
+C.~Wang, J.~Wu, X.~Ling, T.~Luo, and C.~Zhao,
 ``Correct code, vulnerable dependencies: A large scale measurement study of LLM-specified library versions,''
-arXiv:2605.06279, 2026. % TBD: full author first names
+arXiv:2605.06279, 2026.
 
 \bibitem{singla2026}
 T.~Singla, B.~{\c{C}}akar, P.~C.~Amusuo, and J.~C.~Davis,
@@ -626,28 +616,10 @@ S.~Dhuliawala, M.~Komeili, J.~Xu, R.~Raileanu, X.~Li, A.~Celikyilmaz, and J.~Wes
 ``Chain-of-verification reduces hallucination in large language models,''
 in \emph{Findings of the Association for Computational Linguistics: ACL 2024}, 2024, pp.~3563--3578.
 
-\bibitem{krishna2025}
-A.~Krishna, E.~Galinkin, L.~Derczynski, and J.~Martin,
-``Importing phantoms: Measuring LLM package hallucination vulnerabilities,'' arXiv:2501.19012, 2025.
-
 \bibitem{mirandapena2026}
 C.~Miranda-Pena, A.~Reeson, C.~Paris, J.~Poon, and J.~K.~Kummerfeld,
 ``An empirical analysis of static analysis methods for detection and mitigation of code library
 hallucinations,'' \emph{Trans. Machine Learning Research}, 2026, accepted; arXiv:2604.07755.
-
-\bibitem{ligao2025}
-X.~Li and X.~Gao, ``Investigating security implications of automatically generated code on the software supply
-chain,'' arXiv:2509.20277, 2025.
-
-\bibitem{vu2020}
-D.-L.~Vu, I.~Pashchenko, F.~Massacci, H.~Plate, and A.~Sabetta,
-``Typosquatting and combosquatting attacks on the Python ecosystem,''
-in \emph{Proc. IEEE European Symp. Security and Privacy Workshops (EuroS\&PW)}, 2020, pp.~509--514.
-
-\bibitem{taylor2020}
-M.~Taylor, R.~Vaidya, D.~Davidson, L.~De~Carli, and V.~Rastogi,
-``Defending against package typosquatting,''
-in \emph{Network and System Security (NSS)}, LNCS, 2020, pp.~112--131.
 
 \bibitem{neupane2023}
 S.~Neupane, G.~Holmes, E.~Wyss, D.~Davidson, and L.~De~Carli,
@@ -659,52 +631,17 @@ M.~T.~Truong, N.~Gruschka, and L.~Lo~Iacono,
 ``You can't touch this: Detecting typosquatting packages for enhanced malware prevention in software supply
 chains,'' in \emph{Network and System Security (NSS 2024)}, LNCS, Springer, 2025, pp.~147--166.
 
-\bibitem{jiang2026}
-W.~Jiang, B.~{\c{C}}akar, M.~Lysenko, and J.~C.~Davis,
-``ConfuGuard: Using metadata to detect active and stealthy package confusion attacks accurately and at
-scale,'' in \emph{Proc. Int. Conf. Software Engineering (ICSE)}, 2026.
-
 \bibitem{ladisa2023}
 P.~Ladisa, H.~Plate, M.~Martinez, and O.~Barais,
 ``Taxonomy of attacks on open-source software supply chains,''
 in \emph{Proc. IEEE Symp. Security and Privacy (SP)}, 2023, pp.~1509--1526.
 
-\bibitem{ohm2020}
-M.~Ohm, H.~Plate, A.~Sykosch, and M.~Meier,
-``Backstabber's knife collection: A review of open source software supply chain attacks,''
-in \emph{Proc. DIMVA}, LNCS, 2020, pp.~23--43.
-
-\bibitem{duan2021}
-R.~Duan, O.~Alrawi, R.~P.~Kasturi, R.~Elder, B.~Saltaformaggio, and W.~Lee,
-``Towards measuring supply chain attacks on package managers for interpreted languages,''
-in \emph{Proc. NDSS}, 2021.
-
-\bibitem{guo2023}
-W.~Guo, Z.~Xu, C.~Liu, C.~Huang, Y.~Fang, and Y.~Liu,
-``An empirical study of malicious code in PyPI ecosystem,''
-in \emph{Proc. 38th IEEE/ACM Int. Conf. Automated Software Engineering (ASE)}, 2023.
-
-\bibitem{decan2018}
-A.~Decan, T.~Mens, and E.~Constantinou,
-``On the impact of security vulnerabilities in the npm package dependency network,''
-in \emph{Proc. 15th Int. Conf. Mining Software Repositories (MSR)}, 2018.
-
-\bibitem{he2023}
-R.~He, H.~He, Y.~Zhang, and M.~Zhou,
-``Automating dependency updates in practice: An exploratory study on GitHub Dependabot,''
-\emph{IEEE Trans. Software Engineering}, 2023.
-
-\bibitem{pearce2023}
-H.~Pearce, B.~Tan, B.~Ahmad, R.~Karri, and B.~Dolan-Gavitt,
-``Examining zero-shot vulnerability repair with large language models,''
-in \emph{Proc. IEEE Symp. Security and Privacy (SP)}, 2023.
-
 \bibitem{sonatype2026}
 Sonatype Inc., ``2026 state of the software supply chain report: AI agents,'' vendor report (not peer
-reviewed), 2026. [Online]. Available: \url{https://www.sonatype.com/state-of-the-software-supply-chain/2026/ai-agents}
+reviewed), 2026. Accessed: Nov.~25, 2026. [Online]. Available: \url{https://www.sonatype.com/state-of-the-software-supply-chain/2026/ai-agents}
 
 \bibitem{osv}
-Open Source Security Foundation, ``OSV: A distributed vulnerability database for open source,'' [Online].
+Open Source Security Foundation, ``OSV: A distributed vulnerability database for open source.'' Accessed: Nov.~12, 2026. [Online].
 Available: \url{https://osv.dev}
 
 \bibitem{gao2023}
@@ -713,21 +650,26 @@ T.~Gao, H.~Yen, J.~Yu, and D.~Chen,
 in \emph{Proc. EMNLP}, 2023.
 
 \bibitem{langgraph}
-LangChain, ``LangGraph,'' GitHub repository, [Online]. Available: \url{https://github.com/langchain-ai/langgraph}
+LangChain, ``LangGraph,'' GitHub repository. Accessed: Nov.~25, 2026. [Online]. Available: \url{https://github.com/langchain-ai/langgraph}
 
 \bibitem{ossfmal}
-Open Source Security Foundation, ``Malicious packages,'' GitHub repository, [Online].
+Open Source Security Foundation, ``Malicious packages,'' GitHub repository. Accessed: Nov.~25, 2026. [Online].
 Available: \url{https://github.com/ossf/malicious-packages}
 
 \bibitem{datadogmal}
-Datadog Security Labs, ``Malicious software packages dataset,'' GitHub repository, [Online].
+Datadog Security Labs, ``Malicious software packages dataset,'' GitHub repository. Accessed: Nov.~25, 2026. [Online].
 Available: \url{https://github.com/DataDog/malicious-software-packages-dataset}
 
+\bibitem{guo2023}
+W.~Guo, Z.~Xu, C.~Liu, C.~Huang, Y.~Fang, and Y.~Liu,
+``An empirical study of malicious code in PyPI ecosystem,''
+in \emph{Proc. 38th IEEE/ACM Int. Conf. Automated Software Engineering (ASE)}, 2023.
+
 \bibitem{ecosystems}
-Ecosyste.ms, ``Typosquatting dataset,'' [Online]. Available: \url{https://ecosyste.ms}
+Ecosyste.ms, ``Typosquatting dataset.'' Accessed: Nov.~25, 2026. [Online]. Available: \url{https://ecosyste.ms}
 
 \bibitem{toppypi}
-H.~van Kemenade, ``Top PyPI packages,'' [Online]. Available: \url{https://hugovk.github.io/top-pypi-packages/}
+H.~van Kemenade, ``Top PyPI packages.'' Accessed: Nov.~25, 2026. [Online]. Available: \url{https://hugovk.dev/top-pypi-packages/}
 
 \bibitem{wilson1927}
 E.~B.~Wilson, ``Probable inference, the law of succession, and statistical inference,'' \emph{J. American
@@ -751,7 +693,12 @@ A.~Grattafiori \emph{et al.}, ``The Llama 3 herd of models,'' arXiv:2407.21783, 
 Qwen Team, ``Qwen2.5 technical report,'' arXiv:2412.15115, 2024.
 
 \bibitem{ollama}
-Ollama, ``Ollama: Run large language models locally,'' [Online]. Available: \url{https://ollama.com}
+Ollama, ``Ollama: Run large language models locally.'' Accessed: Nov.~25, 2026. [Online]. Available: \url{https://ollama.com}
+
+\bibitem{decan2018}
+A.~Decan, T.~Mens, and E.~Constantinou,
+``On the impact of security vulnerabilities in the npm package dependency network,''
+in \emph{Proc. 15th Int. Conf. Mining Software Repositories (MSR)}, 2018.
 
 \end{thebibliography}
 
