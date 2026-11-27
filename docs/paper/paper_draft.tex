@@ -216,29 +216,30 @@ published after the cut-off. The system never installs, imports or runs a packag
 \section{System Design}
 \label{sec:system}
 
-The five agents run in a fixed order (Fig.~\ref{fig:pipeline}) as a LangGraph~\cite{langgraph} state graph. After
-each stage the graph checks the output against a typed contract, so a stage that fails stops the run with an
-explicit failure state instead of passing a default value along. Every decision records its reasons: the rule, its
-inputs, the evidence identifiers and a plain sentence.
+The five agents run in a fixed order (Fig.~\ref{fig:pipeline}) as a LangGraph state graph. Each agent passes its
+output to the next through a typed contract, checked after every stage. When a stage fails, the run stops in an
+explicit failure state, so no later agent works from an invented default. Every decision carries its reasons:
+the rule that fired, its inputs, the evidence identifiers and a readable sentence.
 
+The \textbf{Dependency Extraction Agent} reads Python and npm manifests offline and turns each dependency into a
+record with a normalized name and version constraint. The \textbf{Evidence Collection Agent} looks up each package by
+exact key in the evidence store and in time-stamped registry recordings. With a cut-off date, it hides everything
+published later from every agent. The \textbf{Risk Assessment Agent} turns the evidence into one finding per label
+family and never folds them into a single score. The \textbf{Recommendation and Remediation Agent} answers each
+finding, either with a fixed rule set or by asking a language model that sees the findings and, optionally, the
+evidence records. The model has no tools or network access, must answer with one JSON object and may cite only the
+identifiers it was given; an answer that breaks these rules becomes a counted \texttt{abstain}. The
+\textbf{Verification Agent} shares no code with Agent~4. Its ten checks confirm that each
+cited identifier exists and supports its claim, and that the target exists, is not reported as malicious or
+typosquatted, and lies outside every affected range visible at the cut-off. A check that cannot run leads to
+\texttt{abstain}, never to \texttt{accept}. The verifier is independent of the model but not of the evidence, so it
+cannot catch a malicious package that no source has reported yet.
 
-The \textbf{Dependency Extraction Agent} reads Python and npm manifests offline and produces records with normalized
-names and version constraints. The \textbf{Evidence Collection Agent} looks up each package by exact key in the
-evidence store and in time-stamped registry recordings; when a run has a cut-off date, it hides everything published
-later from every agent. The \textbf{Risk Assessment Agent} turns the evidence into one finding per label family and
-never merges them into one score. The \textbf{Recommendation and Remediation Agent} answers each finding, either from
-a rule set or from a language model that sees the findings, and optionally the evidence records, in its prompt. The
-model has no tools or network access, must return one JSON object and may cite only the identifiers it was given. If
-it fails, the result is a counted \texttt{abstain}. The \textbf{Verification Agent} shares no code with Agent~4. Its ten
-checks include that each cited identifier exists and supports the claim, and that the target exists, is not
-reported malicious or typosquatted, and lies outside every affected range visible at the cut-off. A
-check that cannot run gives \texttt{abstain}, never \texttt{accept}. The verifier is independent of the model but
-not of the evidence, so it cannot catch a malicious package that no source has reported yet.
-
-The system is written in Python 3.13, with LangGraph for orchestration, Pydantic models for
-the agent contracts and Ollama for serving the local models. A web interface is being developed on top of it: a
-FastAPI back end accepts an uploaded manifest, runs the pipeline and returns the report, and a React front end shows
-each agent's decision and its reasons. The web interface is not part of the evaluation reported here.
+We implemented the system in Python 3.13, with LangGraph for orchestration, Pydantic models for the agent contracts
+and Ollama for serving the local models. More than 1,300 automated tests, run offline, cover each agent, the
+pipeline and the scorer. We also built a web interface: a FastAPI back end takes an uploaded manifest, runs the
+pipeline and returns the report, and a React front end shows each agent's decision and its reasons. The web
+interface is not part of the evaluation reported here.
 
 % =====================================================================================================
 \section{Evaluation Methodology}
@@ -256,19 +257,19 @@ LLM-G with the verifier and C5 rules with the verifier. C3 and C4 share one run,
 verifier differs.
 
 \subsection{Evidence, Cases and Settings}
-The evidence store holds 123{,}980 records from eight sources (Table~\ref{tab:store}),
-each with its source, record identifier, version scope, publication date and file hash. Overlapping malicious sources do not count as independent confirmations,
-and vulnerable results cover PyPI only. Each case is a one-line manifest with one labeled dependency. We fixed the
-train, development and test sides (2{,}640, 624 and 1{,}730 cases) before running any model, keeping each package,
-and each typosquat with its target, on one side. Hallucination-benchmark names~\cite{twist2026} appear only in the
-test split, and no name that is also on a malicious or typosquat list enters development. A sampling rule set in
-advance drew 60 test cases per family (298 after dropping two typosquat names no registry accepts) and 49 and 52
-vulnerable cases for the cut-off settings.
+The evidence store holds 123{,}980 records from eight sources (Table~\ref{tab:store}). Each record keeps its source,
+record identifier, version scope, publication date and file hash. Overlapping malicious sources do not count as
+independent confirmations, and vulnerable results cover PyPI only. Each case is a one-line manifest with one labeled
+dependency. We fixed the train, development and test splits (2{,}640, 624 and 1{,}730 cases) before running any
+model, and kept each package, and each typosquat with its target, within one split. Names from the hallucination
+benchmark~\cite{twist2026} appear only in the test split, and no name that is also on a malicious or typosquat list
+enters development. A sampling rule fixed in advance drew 60 test cases per family (298 after dropping two typosquat
+names that no registry accepts), plus 49 and 52 vulnerable cases for the cut-off settings.
 
-In the main setting, S0, the system sees all the evidence. The cut-off settings S1 and S2 replay the vulnerable cases as if the
-system had run on 1~December~2024 and 1~September~2025, hiding later evidence and uploads from the system but not
-from the scorer. A fix that looked clean on the cut-off date but was reported vulnerable later therefore counts as
-unsafe, which is what a real user would have experienced.
+The main setting, S0, gives the system all the evidence. The cut-off settings S1 and S2 replay the vulnerable cases
+as if the system had run on 1~December~2024 and 1~September~2025: evidence and package uploads from after that date
+are hidden from the system, but not from the scorer. A fix that looked clean on the cut-off date and was reported
+vulnerable later therefore counts as unsafe, which is what a real user would have experienced.
 
 \begin{table}[t]
 \caption{Evidence store (frozen for all held-out runs)}
@@ -294,13 +295,14 @@ Total & & 123{,}980 \\
 \end{table}
 
 \subsection{Outcomes and Statistics}
-A scorer outside the system marks each unsafe property, and a property it cannot
-judge is never counted as safe. \emph{Delivered unsafe} counts the unsafe answers that actually reach the user. We
-always report it next to \emph{coverage}, the share of cases that get a delivered recommendation other than abstain,
-because a system that withholds everything would otherwise look perfectly safe. Proportions get Wilson 95\% intervals~\cite{wilson1927}, and
-claim rates a bootstrap over packages~\cite{efron1993}. Paired comparisons use the exact McNemar
-test~\cite{mcnemar1947} with the Holm correction~\cite{holm1979}. When no case differs between two conditions, HYP4
-uses the one-sided 95\% Wilson bound, so having no events can never prove non-inferiority on its own.
+A scorer outside the system judges every answer. It marks each unsafe property separately, and anything it cannot
+judge is never counted as safe. Our main measure is \emph{delivered unsafe}, the number of unsafe answers that
+actually reach the user. We always report it alongside \emph{coverage}, the share of cases that receive a delivered
+recommendation other than abstain, because a system that withheld everything would otherwise look perfectly safe.
+Proportions carry Wilson 95\% intervals~\cite{wilson1927}, and claim rates a bootstrap over
+packages~\cite{efron1993}. Paired comparisons use the exact McNemar test~\cite{mcnemar1947} with the Holm
+correction~\cite{holm1979}. For HYP4, when no case differs between two conditions, we use the one-sided 95\% Wilson
+bound, so an absence of events can never prove non-inferiority on its own.
 
 \subsection{Protocol and Models}
 All prompt and design choices were made on development cases. The protocol, plan,
@@ -308,7 +310,8 @@ cases, evidence and prompt were hashed and frozen before held-out generation, an
 and stops at any mismatch. We made four dated amendments, all before seeing any result: the
 models share one case sample, the study covers the three local models below, a scoring gate was dropped, and a
 prompt ordering bug was fixed. The models are Llama~3.2~3B~\cite{llama3}, Qwen~2.5~3B and Qwen~2.5~7B~\cite{qwen25},
-quantized to 4 bits and served through Ollama~\cite{ollama} at temperature 0. None was fine-tuned.
+quantized to 4 bits and served through
+Ollama at temperature 0. None was fine-tuned.
 
 \begin{table*}[t]
 \caption{Results without a cut-off (S0, TEST). Values are counts over the stated denominator.}
@@ -532,7 +535,7 @@ models in almost every family, in line with the vendor finding that deterministi
 advice~\cite{sonatype2026}.
 
 Our study has limits. We define ``unsafe'' and ``unsupported'' from evidence records, and an upgrade outside every
-affected range can still break a project~\cite{decan2018}. The verifier and the scorer share one version-range
+affected range can still break a project. The verifier and the scorer share one version-range
 grammar, so their agreement on version facts is not independent evidence, although fixed test vectors guard it. The
 recordings do not show packages removed after a cut-off, and training data may include later advisories.
 Vulnerable results cover PyPI only, each number comes from one run per model, and with about 60 cases per family
@@ -542,23 +545,26 @@ access was limited to metadata, and no human participants were involved.
 
 % =====================================================================================================
 \section{Conclusion}
-We set out to learn whether the advice language models give on flagged dependencies can be trusted. On our
-held-out cases, it often could not. Even with the evidence in front of them, the models made claims that the
-evidence did not support, and the two small models often recommended keeping a malicious or typosquatted package,
-or replacing it with one just as bad. A convincing explanation is no guarantee of a safe fix.
+We set out to learn whether the advice language models give about flagged dependencies can be trusted, and on our
+held-out cases it often could not. Even with the evidence in their prompt, the models made claims that the evidence
+did not support, mostly because they cited far too little of it. The two small models went further: they often
+suggested keeping a malicious or typosquatted package, or replacing it with one just as bad, and all three models
+proposed vulnerable upgrades. A convincing explanation is no guarantee of a safe fix.
 
-An independent, deterministic verifier changed this. Without a cut-off it let none of the unsafe recommendations
-through and wrongly rejected very few acceptable ones. The cost was coverage: many cases were left with no advice,
-and simple rules were just as safe while answering more often. The cut-off experiments showed where the verifier's
-limit lies. Every unsafe fix that still got through involved an advisory published later, so a verifier can only
-enforce what is known when the decision is made. For anyone building such tools, the practical lesson is to check
-every model-proposed fix against evidence before showing it, to keep deterministic rules as the baseline, and to
-keep watching dependencies after a fix has been applied.
+An independent, deterministic verifier changed the picture. Without a cut-off, it let none of the unsafe
+recommendations through and wrongly rejected only 5 of 396 acceptable ones. The price was coverage: many cases were
+left without advice, and simple rules were just as safe while answering more often. The cut-off experiments showed
+where the verifier reaches its limit. Every unsafe fix that still got through involved an advisory published later,
+so a verifier can only enforce what is known at the moment of the decision.
 
-These results come from three small local models and about 60 cases per family, so they are a starting point
-rather than a final answer. Next, we plan to test larger models and the complete test lists, adapt a model on the
-training split, ablate the verifier checks, try rules first with the model as a fallback, compare against an
-existing audit tool and add npm advisories.
+For anyone building such tools, the lessons are practical: check every fix a model proposes against evidence
+before showing it, keep deterministic rules as the baseline, report coverage next to errors, and keep watching
+dependencies after a fix, because the evidence that would have stopped it may arrive later.
+
+These results come from three small local models and about 60 cases per family, so they are a starting point rather
+than a final answer. Next, we plan to test larger models and the complete test lists, adapt a model on the training
+split, ablate the verifier's checks, try rules first with the model as a fallback, compare against an existing audit
+tool and add npm advisories.
 
 % =====================================================================================================
 \begin{thebibliography}{99}
@@ -649,9 +655,6 @@ T.~Gao, H.~Yen, J.~Yu, and D.~Chen,
 ``Enabling large language models to generate text with citations,''
 in \emph{Proc. EMNLP}, 2023.
 
-\bibitem{langgraph}
-LangChain, ``LangGraph,'' GitHub repository. Accessed: Nov.~25, 2026. [Online]. Available: \url{https://github.com/langchain-ai/langgraph}
-
 \bibitem{ossfmal}
 Open Source Security Foundation, ``Malicious packages,'' GitHub repository. Accessed: Nov.~25, 2026. [Online].
 Available: \url{https://github.com/ossf/malicious-packages}
@@ -691,14 +694,6 @@ A.~Grattafiori \emph{et al.}, ``The Llama 3 herd of models,'' arXiv:2407.21783, 
 
 \bibitem{qwen25}
 Qwen Team, ``Qwen2.5 technical report,'' arXiv:2412.15115, 2024.
-
-\bibitem{ollama}
-Ollama, ``Ollama: Run large language models locally.'' Accessed: Nov.~25, 2026. [Online]. Available: \url{https://ollama.com}
-
-\bibitem{decan2018}
-A.~Decan, T.~Mens, and E.~Constantinou,
-``On the impact of security vulnerabilities in the npm package dependency network,''
-in \emph{Proc. 15th Int. Conf. Mining Software Repositories (MSR)}, 2018.
 
 \end{thebibliography}
 
