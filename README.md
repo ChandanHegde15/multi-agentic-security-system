@@ -57,6 +57,8 @@ Details: [`docs/research/RESULTS.md`](docs/research/RESULTS.md).
 | `docs/datasets/DATASET_CATALOG.md` | Data sources, versions and licenses |
 | `docs/research/` | Frozen evaluation protocol, amendments, splits, held-out plans and freeze records, results |
 | `docs/paper/` | The paper and the literature review (IEEE format, LaTeX) |
+| `docs/WEB_HANDOVER.md` | Guide for building the web interface (planned) |
+| `docs/INTEGRATIONS_PLAN.md` | Plan for developer integrations: MCP server, CLI, GitHub Action (planned) |
 
 ## Running the tests
 
