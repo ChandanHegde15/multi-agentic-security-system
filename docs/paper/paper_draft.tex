@@ -358,7 +358,7 @@ Table~\ref{tab:s0} summarizes the main setting.
 \subsection{Claim Support}
 Every model made unsupported claims even with the evidence in its prompt (C3). On vulnerable
 cases the share ranged from 8 of 24 claims for Llama 3.2 3B to 25 of 38 for Qwen 2.5 3B, and without the evidence
-(C2) almost every claim was unsupported. The problem was not citing the wrong record: precision was 98.8--100\% on
+(C2) hardly any claim was supported, and in most families none was. The problem was not citing the wrong record: precision was 98.8--100\% on
 malicious, typosquat and vulnerable cases (Table~\ref{tab:cite}). The models simply cited too few, and recall on
 vulnerable cases was only 15.2--26.9\%. In S0 the verifier let no unsupported claim through, so HYP7 holds there.
 Under the cut-offs, some of Qwen 2.5 7B's verified answers still carried unsupported claims (5 of 41 in S1 and 11
@@ -395,8 +395,8 @@ The rules never gave an unsafe recommendation in S0, but the 3B models often did
 (Fig.~\ref{fig:unsafe}). On malicious and typosquat cases they kept the flagged package, or swapped it for one that
 is itself malicious or a listed typosquat, in up to 61\% of their answers. Qwen 2.5 7B never did this, but all three
 models suggested vulnerable upgrade targets. Giving the models the evidence did not make them safer (HYP3). For
-Llama 3.2 3B it even made things worse, on malicious cases (0 against 14, Holm $p=0.002$) and on typosquat cases (0
-against 13, $p=0.003$).
+Llama 3.2 3B it even made things worse. Once it saw the evidence, its answer turned unsafe in 14 malicious and 13
+typosquat cases, and not one case went the other way (Holm $p=0.002$ and $0.003$).
 
 \begin{figure}[t]
 \centering
@@ -474,7 +474,7 @@ S2 & 64 & 40 & 0 & 23 & 100.0 & 61.5 & 68.5 \\
 
 The price is coverage (Fig.~\ref{fig:coverage}). On vulnerable cases the verified models gave advice in only 20 to
 26 of 60 cases, against 59 for the rules, and the two 3B models failed to produce a valid grounded answer in 15 and
-49 of their 300 cases.
+49 of their 298 cases.
 
 \begin{figure}[t]
 \centering
@@ -536,7 +536,10 @@ advice~\cite{sonatype2026}.
 
 Our study has limits. We define ``unsafe'' and ``unsupported'' from evidence records, and an upgrade outside every
 affected range can still break a project. The verifier and the scorer share one version-range
-grammar, so their agreement on version facts is not independent evidence, although fixed test vectors guard it. The
+grammar, so their agreement on version facts is not independent evidence, although fixed test vectors guard it. In
+S0 they also read the same evidence, so it is no surprise that the verifier caught every unsafe answer there. What
+S0 really tells us is how often it rejected good advice and how much coverage it cost; the cut-off settings, where
+the scorer sees evidence the verifier cannot, are the harder test. The
 recordings do not show packages removed after a cut-off, and training data may include later advisories.
 Vulnerable results cover PyPI only, each number comes from one run per model, and with about 60 cases per family
 some intervals are wide. Malicious and typosquat events are rare under a cut-off, so those families are evaluated
@@ -615,7 +618,7 @@ in \emph{Proc. IEEE/ACM 47th Int. Conf. Software Engineering (ICSE)}, 2025, pp.~
 \bibitem{lewis2020}
 P.~Lewis \emph{et al.},
 ``Retrieval-augmented generation for knowledge-intensive NLP tasks,''
-in \emph{Advances in Neural Information Processing Systems (NeurIPS)}, 2020.
+in \emph{Advances in Neural Information Processing Systems (NeurIPS)}, vol.~33, 2020.
 
 \bibitem{dhuliawala2024}
 S.~Dhuliawala, M.~Komeili, J.~Xu, R.~Raileanu, X.~Li, A.~Celikyilmaz, and J.~Weston,
@@ -653,7 +656,7 @@ Available: \url{https://osv.dev}
 \bibitem{gao2023}
 T.~Gao, H.~Yen, J.~Yu, and D.~Chen,
 ``Enabling large language models to generate text with citations,''
-in \emph{Proc. EMNLP}, 2023.
+in \emph{Proc. EMNLP}, 2023, pp.~6465--6488.
 
 \bibitem{ossfmal}
 Open Source Security Foundation, ``Malicious packages,'' GitHub repository. Accessed: Nov.~25, 2026. [Online].
@@ -669,7 +672,8 @@ W.~Guo, Z.~Xu, C.~Liu, C.~Huang, Y.~Fang, and Y.~Liu,
 in \emph{Proc. 38th IEEE/ACM Int. Conf. Automated Software Engineering (ASE)}, 2023.
 
 \bibitem{ecosystems}
-Ecosyste.ms, ``Typosquatting dataset.'' Accessed: Nov.~25, 2026. [Online]. Available: \url{https://ecosyste.ms}
+Ecosyste.ms, ``Typosquatting dataset,'' GitHub repository. Accessed: Nov.~25, 2026. [Online]. Available:
+\url{https://github.com/ecosyste-ms/typosquatting-dataset}
 
 \bibitem{toppypi}
 H.~van Kemenade, ``Top PyPI packages.'' Accessed: Nov.~25, 2026. [Online]. Available: \url{https://hugovk.dev/top-pypi-packages/}
