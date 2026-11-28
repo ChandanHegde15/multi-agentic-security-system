@@ -132,7 +132,23 @@ npm run dev -- --host 127.0.0.1 --port 5173
 ### Known limitations
 
 - **Parsed manifests:** Agent 1 parses `requirements*.txt`, `*.in`, `package.json`, `package-lock.json`, `npm-shrinkwrap.json`, Python/JS/TS imports, shell scripts, Dockerfiles, Markdown code blocks, ZIP archives, and public GitHub links. `pyproject.toml` and `Pipfile` are reported explicitly as `a1.source.unsupported_manifest`.
-- **Evidence store:** Without the separate 106 MB normalized dataset under `research/datasets/verified/normalized/v1/`, the web server defaults to the offline test fixture evidence store (`tests/fixtures/agent2/evidence/v1/`).
+- **Evidence store:** Without the separate 106 MB normalized dataset under `research/datasets/verified/normalized/v1/`, the web server defaults to the offline test fixture evidence store (`tests/fixtures/agent2/evidence/v1/`). Team members receive a private evidence share from the maintainer (see below).
+
+### Getting the evidence data (team members)
+
+The evidence tables are not in this repository. The maintainer packs the tables whose source licences allow sharing (names, versions and advisory facts only; no package code) and sends the zip privately:
+
+```powershell
+python -m multi_agentic_security.evidence_store.share make --out runtime/evidence_share.zip
+```
+
+The team member installs it in their own copy of the repository and restarts the backend:
+
+```powershell
+python -m multi_agentic_security.evidence_store.share install evidence_share.zip
+```
+
+The share holds 7 of the 8 tables (111,380 records). The PyPI MalRegistry listing has no stated licence and is not shared; the system reports it as a missing table and never reports "no evidence" where it could have held a record. Every file is checked against its SHA-256, nothing is overwritten, and the zip must never be committed or published.
 - **Missing vs. malicious:** Packages absent from a registry (`not_found`) are never automatically labeled confirmed malicious without malware/typosquat evidence.
 
 ## Running the tests
